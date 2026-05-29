@@ -21,7 +21,7 @@ from typing import Literal
 
 Backend = Literal["openai", "adk", "livekit"]
 
-LANGSMITH_OTLP_ENDPOINT = "https://api.smith.langchain.com/otel"
+DEFAULT_LANGSMITH_ENDPOINT = "https://api.smith.langchain.com"
 
 
 def project_name_for(backend: Backend, override: str | None = None) -> str:
@@ -55,12 +55,32 @@ def configure(backend: Backend, project: str | None = None) -> str:
         # OTLP exporter env vars — read by OTLPSpanExporter(). The
         # `Langsmith-Project` header lets the receiver assign spans to the
         # right project without us having to set it on every span.
-        os.environ.setdefault("OTEL_EXPORTER_OTLP_ENDPOINT", LANGSMITH_OTLP_ENDPOINT)
+        #
+        # Derive the OTLP endpoint from LANGSMITH_ENDPOINT (the same var the
+        # LangSmith SDK honors) so the OTEL backends point at the same base URL
+        # as the SDK-based OpenAI backend — including a self-hosted/localhost
+        # instance. The OTel ingestion path is `<base>/otel`; OTLPSpanExporter
+        # then appends `/v1/traces`.
+        base = os.environ.get(
+            "LANGSMITH_ENDPOINT", DEFAULT_LANGSMITH_ENDPOINT
+        ).rstrip("/")
+        os.environ.setdefault("OTEL_EXPORTER_OTLP_ENDPOINT", f"{base}/otel")
         existing_headers = os.environ.get("OTEL_EXPORTER_OTLP_HEADERS", "")
         if "x-api-key" not in existing_headers:
             os.environ["OTEL_EXPORTER_OTLP_HEADERS"] = (
                 f"x-api-key={api_key},Langsmith-Project={project_name}"
             )
+
+    if backend == "livekit":
+        # The LiveKit backend's LLM is a LangGraph agent (via the langchain
+        # plugin's LLMAdapter). Put the LangSmith SDK in OTel mode so the
+        # langchain/langgraph runs emit through the shared global TracerProvider
+        # (wired in livekit/agent.py) instead of posting straight to the
+        # LangSmith API. That makes them inherit the active OTel context and
+        # nest UNDER LiveKit's agent_turn/llm_node spans, rather than forming a
+        # separate top-level trace. (openai/adk stay in default langsmith mode —
+        # the OpenAI backend traces via RunTree directly.)
+        os.environ.setdefault("LANGSMITH_TRACING_MODE", "otel")
 
     if backend == "adk":
         # ADK only writes message content onto span attributes when the

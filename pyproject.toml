@@ -27,7 +27,9 @@ adk = [
     "langsmith[google-adk]>=0.4",
 ]
 livekit = [
-    "livekit-agents[openai,silero,turn-detector]>=1.0",
+    "livekit-agents[openai,silero,turn-detector,langchain]>=1.0",
+    "langgraph>=0.2",
+    "langchain-openai>=0.2",
 ]
 
 [project.scripts]

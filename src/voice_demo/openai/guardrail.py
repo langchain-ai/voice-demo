@@ -4,7 +4,8 @@ A fast structured-output LLM call that decides whether the user brought up
 pineapple on pizza. When tripped, the agent cancels its in-flight response
 and instructs the model to deliver a theatrical refusal.
 
-`@traceable` nests each guardrail decision under the active turn.
+`@traceable` nests each guardrail decision under the transcription event
+span that triggered it (the agent runs the check while handling that event).
 """
 
 from __future__ import annotations

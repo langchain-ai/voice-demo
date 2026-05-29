@@ -18,31 +18,32 @@ That refines the demo's "OTel vs SDK" rule:
 
 Trace shape
 -----------
-One conversation = one trace:
+One conversation = one trace. Every `run_live` event becomes its own span
+under the session root, in arrival order, carrying that event's full (scrubbed)
+payload — in `inputs` if it's the user's transcribed speech heading to the
+model, in `outputs` if it's the model/server replying (agent transcription,
+tool calls, turn/interrupt signals) — so the trace mirrors what the service
+actually streamed us rather than a synthesized turn abstraction. Audio is
+embedded inside events as
+`inline_data` bytes; events whose *only* payload is an audio chunk are played
+but not spanned (there are too many), and every recorded event has its audio
+bytes scrubbed to a `<N bytes>` placeholder.
 
     realtime_session                       (root; conversation.wav stereo)
-    │   metadata: thread_id, model, turn_count, duration_s
+    │   metadata: thread_id, model, event_count, duration_s
     │
-    ├── user_turn 1                        (opens on first event after last
-    │   │                                   turn_complete; closes on
-    │   │                                   turn_complete)
-    │   │   attachments: user_utterance.wav
-    │   │   metadata: turn_duration_ms, agent_audio_duration_ms,
-    │   │             e2e_latency_ms (rough — first input_transcription to
-    │   │             first agent audio)
-    │   │   inputs:  user_transcript
-    │   │   outputs: agent_transcript
-    │   └── execute_tool: get_weather      (per function_call event)
-    │
-    ├── user_turn 2 [tag: interrupted]
-    │   └── ...
-    └── user_turn 3 [tag: no_transcript]   (noise / cough; outputs.noop = true)
+    ├── input_transcription               (event — user speech chunk)
+    ├── output_transcription              (event — agent speech chunk)
+    ├── function_call: get_weather        (event)
+    │   └── execute_tool: get_weather     (real tool child; finalized when the
+    │                                      matching function_response arrives)
+    ├── function_response: get_weather    (event)
+    ├── turn_complete                     (event)
+    └── interrupted                       (event)
 
-What ADK doesn't give us
-------------------------
-No explicit `speech_started` / `speech_stopped` events, so fine-grained
-per-stage latencies (transcription latency, think latency) aren't observable
-the way they are for OpenAI Realtime. We get coarser turn-level timing.
+Tool calls trace as proper child runs the way they would in any traced app —
+the only thing that changed from a curated-span design is that the *parents*
+are now the literal events instead of synthesized turns.
 """
 
 from __future__ import annotations
@@ -57,6 +58,8 @@ import time
 import uuid
 import warnings
 import wave
+from collections.abc import Iterator
+from contextlib import contextmanager, nullcontext
 from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Any
@@ -141,38 +144,12 @@ class _Session:
     # Time-stamped audio chunks for the stereo conversation WAV.
     user_chunks: list[tuple[float, bytes]] = field(default_factory=list)
     agent_chunks: list[tuple[float, bytes]] = field(default_factory=list)
-    turn_count: int = 0
-
-
-@dataclass
-class _Turn:
-    run: RunTree
-    started_at: float
-    user_transcript: str = ""
-    agent_transcript: str = ""
-    user_audio: bytearray = field(default_factory=bytearray)
-    collecting_user_audio: bool = True
-    first_input_transcription_at: float | None = None
-    first_agent_audio_at: float | None = None
-    last_agent_audio_at: float | None = None
-    interrupted: bool = False
-    tool_runs: dict[str, RunTree] = field(default_factory=dict)
-    tool_calls: list[dict] = field(default_factory=list)
+    event_count: int = 0
 
 
 # ---------------------------------------------------------------------------
 # WAV helpers (lifted from openai/agent.py — same audio model)
 # ---------------------------------------------------------------------------
-
-def _mono_pcm16_to_wav(data: bytes, sample_rate: int) -> bytes:
-    buf = io.BytesIO()
-    with wave.open(buf, "wb") as wf:
-        wf.setnchannels(1)
-        wf.setsampwidth(2)
-        wf.setframerate(sample_rate)
-        wf.writeframes(bytes(data))
-    return buf.getvalue()
-
 
 def _layout_chunks_to_play_time(
     chunks: list[tuple[float, bytes]], sample_rate: int
@@ -240,7 +217,7 @@ def _build_stereo_session_wav(session: _Session) -> bytes:
 
 
 # ---------------------------------------------------------------------------
-# Session / turn / tool lifecycle
+# Session / tool lifecycle
 # ---------------------------------------------------------------------------
 
 def _start_session(thread_id: str, project_name: str) -> _Session:
@@ -259,7 +236,7 @@ def _start_session(thread_id: str, project_name: str) -> _Session:
 def _finalize_session(session: _Session) -> None:
     extra: dict[str, Any] = session.run.extra or {}
     metadata: dict[str, Any] = dict(extra.get("metadata") or {})
-    metadata["turn_count"] = session.turn_count
+    metadata["event_count"] = session.event_count
     metadata["duration_s"] = round(time.monotonic() - session.t0, 2)
     extra["metadata"] = metadata
     session.run.extra = extra
@@ -273,83 +250,8 @@ def _finalize_session(session: _Session) -> None:
     session.run.patch()
 
 
-def _start_turn(session: _Session, started_at: float) -> _Turn:
-    session.turn_count += 1
-    run = session.run.create_child(
-        name="user_turn",
-        run_type="chain",
-        inputs={
-            "turn_index": session.turn_count,
-            "started_at_s": round(started_at, 3),
-        },
-        tags=["turn"],
-        extra={"metadata": {
-            "thread_id": session.thread_id,
-            "turn_index": session.turn_count,
-        }},
-    )
-    run.post()
-    return _Turn(run=run, started_at=started_at)
-
-
-def _finalize_turn(turn: _Turn, completed_at: float) -> None:
-    outputs: dict[str, Any] = {
-        "user_transcript": turn.user_transcript,
-        "agent_transcript": turn.agent_transcript,
-    }
-    if not turn.user_transcript:
-        outputs["noop"] = True
-    if turn.interrupted:
-        outputs["interrupted"] = True
-    if turn.tool_calls:
-        outputs["tool_calls"] = turn.tool_calls
-
-    extra: dict[str, Any] = turn.run.extra or {}
-    metadata: dict[str, Any] = dict(extra.get("metadata") or {})
-    metadata["turn_duration_ms"] = int((completed_at - turn.started_at) * 1000)
-    if turn.first_agent_audio_at is not None and turn.last_agent_audio_at is not None:
-        metadata["agent_audio_duration_ms"] = int(
-            (turn.last_agent_audio_at - turn.first_agent_audio_at) * 1000
-        )
-    if (
-        turn.first_agent_audio_at is not None
-        and turn.first_input_transcription_at is not None
-    ):
-        # Rough perceived latency — time from first user transcription chunk
-        # to first agent audio. Coarser than OpenAI's `speech_stopped → first
-        # audio` because we lack explicit speech_stopped here.
-        metadata["e2e_latency_ms"] = int(
-            (turn.first_agent_audio_at - turn.first_input_transcription_at) * 1000
-        )
-    extra["metadata"] = metadata
-    turn.run.extra = extra
-
-    if turn.user_audio:
-        turn.run.attachments = {
-            "user_utterance": (
-                "audio/wav",
-                _mono_pcm16_to_wav(bytes(turn.user_audio), RECV_SAMPLE_RATE),
-            ),
-        }
-
-    tags = list(turn.run.tags or [])
-    if turn.interrupted and "interrupted" not in tags:
-        tags.append("interrupted")
-    if not turn.user_transcript and "no_transcript" not in tags:
-        tags.append("no_transcript")
-    turn.run.tags = tags
-
-    turn.run.inputs = {
-        "turn_index": metadata.get("turn_index"),
-        "user_transcript": turn.user_transcript,
-        "started_at_s": round(turn.started_at, 3),
-    }
-    turn.run.end(outputs=outputs)
-    turn.run.patch()
-
-
-def _start_tool(turn: _Turn, name: str, args: dict, t: float) -> RunTree:
-    run = turn.run.create_child(
+def _start_tool(parent: RunTree, name: str, args: dict) -> RunTree:
+    run = parent.create_child(
         name=f"execute_tool: {name}",
         run_type="tool",
         inputs={"args": args},
@@ -362,6 +264,141 @@ def _start_tool(turn: _Turn, name: str, args: dict, t: float) -> RunTree:
 def _finalize_tool(tool_run: RunTree, response: Any) -> None:
     tool_run.end(outputs={"response": response})
     tool_run.patch()
+
+
+# ---------------------------------------------------------------------------
+# Event spans — one span per received run_live event
+# ---------------------------------------------------------------------------
+
+_MAX_STR = 2000
+
+
+def _scrub(obj: Any) -> Any:
+    """Make an event payload safe + compact for a span.
+
+    Replaces raw `bytes` (audio chunks live in `inline_data.data`) with a
+    `<N bytes>` placeholder and truncates very long strings, so we never ship
+    audio blobs to LangSmith or blow up JSON serialization.
+    """
+    if isinstance(obj, bytes):
+        return f"<{len(obj)} bytes>"
+    if isinstance(obj, str):
+        if len(obj) > _MAX_STR:
+            return obj[:_MAX_STR] + f"... <+{len(obj) - _MAX_STR} chars>"
+        return obj
+    if isinstance(obj, dict):
+        return {k: _scrub(v) for k, v in obj.items()}
+    if isinstance(obj, (list, tuple)):
+        return [_scrub(v) for v in obj]
+    return obj
+
+
+def _dump_event(event: Any) -> dict[str, Any]:
+    """Best-effort conversion of a run_live event to a plain dict."""
+    if hasattr(event, "model_dump"):
+        try:
+            return event.model_dump()
+        except Exception:
+            pass
+    if isinstance(event, dict):
+        return event
+    return {"repr": repr(event)}
+
+
+def _event_label(event: Any) -> str:
+    """A readable span name derived from the event's payload."""
+    if getattr(event, "interrupted", False):
+        return "interrupted"
+    if getattr(event, "turn_complete", False):
+        return "turn_complete"
+    in_tx = getattr(event, "input_transcription", None)
+    if in_tx and getattr(in_tx, "text", None):
+        return "input_transcription"
+    out_tx = getattr(event, "output_transcription", None)
+    if out_tx and getattr(out_tx, "text", None):
+        return "output_transcription"
+    content = getattr(event, "content", None)
+    if content and getattr(content, "parts", None):
+        for part in content.parts:
+            fc = getattr(part, "function_call", None)
+            if fc is not None and getattr(fc, "name", None):
+                return f"function_call: {fc.name}"
+            fr = getattr(part, "function_response", None)
+            if fr is not None and getattr(fr, "name", None):
+                return f"function_response: {fr.name}"
+    return "event"
+
+
+def _is_audio_only(event: Any) -> bool:
+    """True if the event's only payload is an audio chunk.
+
+    ADK streams agent audio as a flood of `inline_data` events; spanning each
+    one would bury the trace. Those we play but don't span. Any event that also
+    carries transcription, a tool call/response, or a turn/interrupt flag is
+    kept.
+    """
+    has_audio = False
+    content = getattr(event, "content", None)
+    if content and getattr(content, "parts", None):
+        for part in content.parts:
+            inline = getattr(part, "inline_data", None)
+            if inline and getattr(inline, "data", None):
+                has_audio = True
+            fc = getattr(part, "function_call", None)
+            if fc is not None and getattr(fc, "name", None):
+                return False
+            fr = getattr(part, "function_response", None)
+            if fr is not None and getattr(fr, "name", None):
+                return False
+    if not has_audio:
+        return False
+    in_tx = getattr(event, "input_transcription", None)
+    if in_tx and getattr(in_tx, "text", None):
+        return False
+    out_tx = getattr(event, "output_transcription", None)
+    if out_tx and getattr(out_tx, "text", None):
+        return False
+    if getattr(event, "turn_complete", False):
+        return False
+    if getattr(event, "interrupted", False):
+        return False
+    return True
+
+
+def _is_inbound(event: Any) -> bool:
+    """Direction of an event relative to the model.
+
+    Inbound = the user's transcribed speech heading toward the model → span
+    `inputs`. Everything else (agent transcription, tool call/response, audio,
+    turn/interrupt signals) is the model/server talking back → span `outputs`.
+    """
+    in_tx = getattr(event, "input_transcription", None)
+    return bool(in_tx and getattr(in_tx, "text", None))
+
+
+@contextmanager
+def _start_event(session: _Session, event: Any, t_now: float) -> Iterator[RunTree]:
+    """Open a child span for one received event; close it when the body exits.
+
+    The event payload lands in `inputs` for user→model events and `outputs` for
+    model→user events, so the trace reads in the natural direction of flow.
+    """
+    session.event_count += 1
+    payload = _scrub(_dump_event(event))
+    inbound = _is_inbound(event)
+    run = session.run.create_child(
+        name=_event_label(event),
+        run_type="chain",
+        inputs=payload if inbound else {},
+        tags=["event"],
+        extra={"metadata": {"received_at_s": round(t_now, 3)}},
+    )
+    run.post()
+    try:
+        yield run
+    finally:
+        run.end(outputs={} if inbound else payload)
+        run.patch()
 
 
 # ---------------------------------------------------------------------------
@@ -420,7 +457,6 @@ async def run(project_name: str) -> None:
     status.log("[adk] talk into your mic — Ctrl-C to quit.")
 
     session = _start_session(thread_id, project_name)
-    turn: _Turn | None = None
     # Most recent agent audio chunk receipt — used to distinguish real user
     # interrupts from speaker bleed transcriptions (see input_transcription
     # handler below).
@@ -446,15 +482,12 @@ async def run(project_name: str) -> None:
                 )
             )
             status.update_level(frame_level(frame))
-            # Always record into the session-level timeline (for the
-            # conversation stereo WAV). Per-turn user audio when active.
-            t = _now()
-            session.user_chunks.append((t, frame))
-            if turn is not None and turn.collecting_user_audio:
-                turn.user_audio.extend(frame)
+            # Record into the session-level timeline for the conversation
+            # stereo WAV.
+            session.user_chunks.append((_now(), frame))
 
     async def pump_responses() -> None:
-        nonlocal turn, last_agent_chunk_at
+        nonlocal last_agent_chunk_at
 
         run_config = RunConfig(
             response_modalities=["AUDIO"],
@@ -471,14 +504,13 @@ async def run(project_name: str) -> None:
             ),
         )
 
+        # Console-log buffers (UX only — not tied to any span). Flushed on
+        # turn_complete so the printed transcript reads as whole utterances.
         user_buf: list[str] = []
         agent_buf: list[str] = []
-
-        def ensure_turn() -> _Turn:
-            nonlocal turn
-            if turn is None:
-                turn = _start_turn(session, _now())
-            return turn
+        # Tool runs awaiting their function_response (which arrives in a later
+        # event). Keyed by call id; parented to the function_call event span.
+        tool_runs: dict[str, RunTree] = {}
 
         try:
             async for event in runner.run_live(
@@ -489,103 +521,84 @@ async def run(project_name: str) -> None:
             ):
                 t_now = _now()
 
-                if getattr(event, "interrupted", False):
-                    speaker.clear()
-                    status.set_state("hearing you")
-                    if turn is not None:
-                        turn.interrupted = True
-
-                content = getattr(event, "content", None)
-                if content and getattr(content, "parts", None):
-                    for part in content.parts:
-                        # Agent audio chunk
-                        inline = getattr(part, "inline_data", None)
-                        if inline and inline.data:
-                            chunk = inline.data
-                            speaker.write(chunk)
-                            status.set_state("speaking")
-                            session.agent_chunks.append((t_now, chunk))
-                            last_agent_chunk_at = time.monotonic()
-                            t = ensure_turn()
-                            if t.first_agent_audio_at is None:
-                                t.first_agent_audio_at = t_now
-                            t.last_agent_audio_at = t_now
-
-                        # Tool call (server invoked a function)
-                        fc = getattr(part, "function_call", None)
-                        if fc is not None and getattr(fc, "name", None):
-                            t = ensure_turn()
-                            args = dict(fc.args) if getattr(fc, "args", None) else {}
-                            call_id = getattr(fc, "id", None) or fc.name
-                            tool_run = _start_tool(t, fc.name, args, t_now)
-                            t.tool_runs[call_id] = tool_run
-                            t.tool_calls.append({"name": fc.name, "args": args})
-
-                        # Tool response (server returning the function's output)
-                        fr = getattr(part, "function_response", None)
-                        if fr is not None and getattr(fr, "name", None):
-                            response = getattr(fr, "response", None)
-                            t = ensure_turn()
-                            call_id = getattr(fr, "id", None) or fr.name
-                            tool_run = t.tool_runs.pop(call_id, None)
-                            if tool_run is not None:
-                                _finalize_tool(tool_run, response)
-                            # Stamp the result onto the last matching call entry.
-                            for tc in reversed(t.tool_calls):
-                                if tc.get("name") == fr.name and "result" not in tc:
-                                    tc["result"] = response
-                                    break
-
-                in_tx = getattr(event, "input_transcription", None)
-                if in_tx and in_tx.text:
-                    user_buf.append(in_tx.text)
-                    t = ensure_turn()
-                    if t.first_input_transcription_at is None:
-                        t.first_input_transcription_at = t_now
-                    # Disambiguate real interrupt vs mic bleed (Gemini
-                    # transcribes whatever the mic picks up — including
-                    # speaker bleed). If agent audio is still arriving
-                    # within QUIET_THRESHOLD, this is almost certainly bleed.
-                    quiet_for = time.monotonic() - last_agent_chunk_at
-                    speaker_has_audio = speaker.buffered_bytes() > 0
-                    if not speaker_has_audio:
-                        status.set_state("hearing you")
-                    elif quiet_for > AGENT_QUIET_THRESHOLD_S:
-                        # Drain phase — flush stale audio so the interrupt feels real.
+                # Audio-only events flood in; play them but don't span them.
+                ev_cm = (
+                    nullcontext()
+                    if _is_audio_only(event)
+                    else _start_event(session, event, t_now)
+                )
+                with ev_cm as ev:
+                    if getattr(event, "interrupted", False):
                         speaker.clear()
                         status.set_state("hearing you")
-                    # else: active generation, likely bleed — ignore.
 
-                out_tx = getattr(event, "output_transcription", None)
-                if out_tx and out_tx.text:
-                    agent_buf.append(out_tx.text)
-                    ensure_turn()
+                    content = getattr(event, "content", None)
+                    if content and getattr(content, "parts", None):
+                        for part in content.parts:
+                            # Agent audio chunk
+                            inline = getattr(part, "inline_data", None)
+                            if inline and inline.data:
+                                chunk = inline.data
+                                speaker.write(chunk)
+                                status.set_state("speaking")
+                                session.agent_chunks.append((t_now, chunk))
+                                last_agent_chunk_at = time.monotonic()
 
-                if getattr(event, "turn_complete", False):
-                    user_text = "".join(user_buf).strip()
-                    agent_text = "".join(agent_buf).strip()
-                    if user_text:
-                        status.log(f"user:  {user_text}")
-                    if agent_text:
-                        status.log(f"agent: {agent_text}")
-                    user_buf.clear()
-                    agent_buf.clear()
+                            # Tool call (server invoked a function)
+                            fc = getattr(part, "function_call", None)
+                            if fc is not None and getattr(fc, "name", None):
+                                args = dict(fc.args) if getattr(fc, "args", None) else {}
+                                call_id = getattr(fc, "id", None) or fc.name
+                                parent = ev if ev is not None else session.run
+                                tool_runs[call_id] = _start_tool(parent, fc.name, args)
 
-                    if turn is not None:
-                        turn.user_transcript = user_text
-                        turn.agent_transcript = agent_text
-                        # Best-effort close-out for any tools that didn't
-                        # see a matching function_response (shouldn't happen
-                        # normally — defensive).
-                        for tool_run in turn.tool_runs.values():
-                            _finalize_tool(tool_run, {"error": "no response captured"})
-                        turn.tool_runs.clear()
-                        _finalize_turn(turn, t_now)
-                        turn = None
+                            # Tool response (server returning the function's output)
+                            fr = getattr(part, "function_response", None)
+                            if fr is not None and getattr(fr, "name", None):
+                                response = getattr(fr, "response", None)
+                                call_id = getattr(fr, "id", None) or fr.name
+                                tool_run = tool_runs.pop(call_id, None)
+                                if tool_run is not None:
+                                    _finalize_tool(tool_run, response)
 
-                    status.set_state("listening")
+                    in_tx = getattr(event, "input_transcription", None)
+                    if in_tx and in_tx.text:
+                        user_buf.append(in_tx.text)
+                        # Disambiguate real interrupt vs mic bleed (Gemini
+                        # transcribes whatever the mic picks up — including
+                        # speaker bleed). If agent audio is still arriving
+                        # within QUIET_THRESHOLD, this is almost certainly bleed.
+                        quiet_for = time.monotonic() - last_agent_chunk_at
+                        speaker_has_audio = speaker.buffered_bytes() > 0
+                        if not speaker_has_audio:
+                            status.set_state("hearing you")
+                        elif quiet_for > AGENT_QUIET_THRESHOLD_S:
+                            # Drain phase — flush stale audio so the interrupt feels real.
+                            speaker.clear()
+                            status.set_state("hearing you")
+                        # else: active generation, likely bleed — ignore.
+
+                    out_tx = getattr(event, "output_transcription", None)
+                    if out_tx and out_tx.text:
+                        agent_buf.append(out_tx.text)
+
+                    if getattr(event, "turn_complete", False):
+                        user_text = "".join(user_buf).strip()
+                        agent_text = "".join(agent_buf).strip()
+                        if user_text:
+                            status.log(f"user:  {user_text}")
+                        if agent_text:
+                            status.log(f"agent: {agent_text}")
+                        user_buf.clear()
+                        agent_buf.clear()
+                        status.set_state("listening")
         except asyncio.CancelledError:
             pass
+        finally:
+            # Defensive: close any tool spans that never saw a response.
+            for tool_run in tool_runs.values():
+                _finalize_tool(tool_run, {"error": "no response captured"})
+            tool_runs.clear()
 
     with tracing_context(
         metadata={"thread_id": thread_id},
@@ -608,7 +621,4 @@ async def run(project_name: str) -> None:
             speaker.stop()
             status.finish()
 
-            if turn is not None:
-                turn.interrupted = True
-                _finalize_turn(turn, _now())
             _finalize_session(session)

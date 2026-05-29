@@ -1,52 +1,40 @@
 """OpenAI Realtime API voice agent, traced with the LangSmith SDK.
 
 Why SDK and not OTEL: OpenAI Realtime has no native telemetry — it's a raw
-WebSocket event stream of `input_audio_buffer.*`, `response.*`, etc. We have
-to build the trace from scratch either way, and the SDK gives us four things
-OTEL can't: (1) multipart audio attachments (no base64 overhead), (2) mid-run
-patching so a long response shows up in real time, (3) first-class interruption
-status via tags + outputs on each run, (4) tool calls as proper child runs
-instead of synthetic span attributes.
+WebSocket event stream of `input_audio_buffer.*`, `response.*`, etc. We build
+the trace directly from that stream so the trace mirrors *exactly what the
+server sent us*, rather than a curated abstraction layered on top.
 
 ## Trace shape — one conversation = one trace
 
-    realtime_session                          (root, opened at startup)
-    │  attachments: conversation.wav         (stereo: L=user, R=agent)
-    │
-    ├── user_turn 1                          (opened on speech_started)
-    │   │  attachments: user_utterance.wav   (just this user's utterance)
-    │   │  metadata: turn_user_speech_duration_ms, turn_transcription_latency_ms,
-    │   │            turn_think_latency_ms, turn_e2e_latency_ms
-    │   ├── guardrail
-    │   └── agent_response (1.1)             (one per response.create→done cycle)
-    │       │  attachments: response_audio.wav
-    │       │  usage_metadata: { input_tokens, output_tokens, total_tokens }
-    │       │  metadata: response_ttfb_ms, response_duration_ms
-    │       └── lookup_weather × N           (nested under the calling response)
-    │
-    ├── user_turn 2 [tag: interrupted]       (user spoke before turn 1 wrapped up)
-    │   └── agent_response (2.1) [tag: cancelled]   (partial transcript + cut-off audio)
-    │
-    ├── user_turn 3 [tag: no_transcript]     (noise / cough — no usable speech)
-    │       outputs: { noop: true }
-    │
-    └── user_turn 4
-        ├── agent_response (4.1)             (emits tool calls)
-        │   └── lookup_weather × 2
-        └── agent_response (4.2)             (post-tool follow-up speech)
+Every received WebSocket event becomes its own span under the session root, in
+arrival order, carrying that event's full (scrubbed) payload — in `inputs` if
+the user sent it toward the model (speech buffer, transcription), in `outputs`
+if the model/server sent it back (`response.*`, `error`). Raw
+audio (`response.output_audio.delta`) is played but not spanned, and every other
+streaming partial (`*.delta`) is dropped too — the terminal `*.done` events
+carry the complete payload. Work the agent does *while handling* an event (the
+guardrail check, tool execution) nests inside that event's span, exactly as a
+tool call would in any other traced app.
 
-## Boundary choice
+    realtime_session                                   (root)
+    │  attachments: conversation.wav                  (stereo: L=user, R=agent)
+    │  metadata: event_count, duration_s
+    │
+    ├── input_audio_buffer.speech_started             (event)
+    ├── input_audio_buffer.speech_stopped             (event)
+    ├── conversation.item.input_audio_transcription.completed   (event)
+    │   └── guardrail                                 (ran while handling this event)
+    ├── response.created                              (event)
+    ├── response.function_call_arguments.done         (event)
+    ├── response.done                                 (event)
+    │   └── lookup_weather × N                        (ran while handling this event)
+    ├── response.done                                 (event — post-tool follow-up)
+    └── error                                         (event, if the server sent one)
 
-Turn = `speech_started → terminal response.done`. We use VAD events, not
-transcription, because:
-  - VAD is what the agent actually reacts to (it can cancel responses on
-    `speech_started`, before any transcription exists).
-  - Per-stage latency requires speech timestamps. If you key off
-    `transcription.completed`, you've lost the "how long did the user talk",
-    "how long did transcription take", and "what was the end-to-end perceived
-    latency" signals — which are the most useful numbers for a voice agent.
-  - Noise turns (no transcript) are real events — debugging "why didn't the
-    agent hear me?" needs them in the trace, just tagged so they're filterable.
+Audio playback, barge-in/interruption, the guardrail, and the tool follow-up
+loop all behave exactly as before — only the trace representation changed: it's
+now the literal event stream instead of synthesized turn/response spans.
 """
 
 from __future__ import annotations
@@ -61,6 +49,8 @@ import sys
 import time
 import uuid
 import wave
+from collections.abc import Iterator
+from contextlib import contextmanager
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -121,66 +111,12 @@ class _Session:
     # (offset_seconds_from_t0, pcm16_bytes). Reconstructed at finalize.
     user_chunks: list[tuple[float, bytes]] = field(default_factory=list)
     agent_chunks: list[tuple[float, bytes]] = field(default_factory=list)
-    turn_count: int = 0
-    response_count: int = 0
-
-
-@dataclass
-class _Turn:
-    """One user utterance and everything the agent did in response.
-
-    Opened on `input_audio_buffer.speech_started`, finalized on the terminal
-    `response.done` (or on the next `speech_started` if the user interrupted).
-    """
-
-    run: RunTree
-    # Timestamps relative to session.t0 (seconds).
-    speech_started_at: float
-    speech_stopped_at: float | None = None
-    transcription_at: float | None = None
-    response_created_at: float | None = None
-    first_response_audio_at: float | None = None
-
-    user_transcript: str = ""
-    # Per-turn user-utterance audio (speech_started → speech_stopped window).
-    user_audio: bytearray = field(default_factory=bytearray)
-    collecting_user_audio: bool = True
-
-    blocked: bool = False
-    block_reason: str = ""
-    interrupted: bool = False
-    agent_transcript: str = ""
-    response_count: int = 0
-
-
-@dataclass
-class _Response:
-    """One response.create→done cycle (a turn may have several)."""
-
-    run: RunTree
-    created_at: float
-    first_audio_at: float | None = None
-    done_at: float | None = None
-    audio: bytearray = field(default_factory=bytearray)
-    transcript: str = ""
-    tool_calls: list[dict] = field(default_factory=list)
-    cancelled: bool = False
-    usage: dict | None = None
+    event_count: int = 0
 
 
 # ---------------------------------------------------------------------------
 # WAV helpers
 # ---------------------------------------------------------------------------
-
-def _mono_pcm16_to_wav(data: bytes, sample_rate: int = SAMPLE_RATE) -> bytes:
-    buf = io.BytesIO()
-    with wave.open(buf, "wb") as wf:
-        wf.setnchannels(1)
-        wf.setsampwidth(2)
-        wf.setframerate(sample_rate)
-        wf.writeframes(bytes(data))
-    return buf.getvalue()
-
 
 def _layout_chunks_to_play_time(
     chunks: list[tuple[float, bytes]],
@@ -258,7 +194,7 @@ def _build_stereo_session_wav(session: _Session) -> bytes:
 
 
 # ---------------------------------------------------------------------------
-# Session / turn / response lifecycle
+# Session lifecycle
 # ---------------------------------------------------------------------------
 
 def _start_session(thread_id: str, project_name: str) -> _Session:
@@ -279,8 +215,7 @@ def _start_session(thread_id: str, project_name: str) -> _Session:
 def _finalize_session(session: _Session) -> None:
     extra: dict[str, Any] = session.run.extra or {}
     metadata: dict[str, Any] = dict(extra.get("metadata") or {})
-    metadata["turn_count"] = session.turn_count
-    metadata["response_count"] = session.response_count
+    metadata["event_count"] = session.event_count
     metadata["duration_s"] = round(time.monotonic() - session.t0, 2)
     extra["metadata"] = metadata
     session.run.extra = extra
@@ -296,150 +231,83 @@ def _finalize_session(session: _Session) -> None:
     session.run.patch()
 
 
-def _start_turn(session: _Session, t_started: float) -> _Turn:
-    session.turn_count += 1
-    # `create_child()` correctly sets trace_id, parent_run_id, and dotted_order
-    # so this nests under the session root. `RunTree(parent=...)` would NOT —
-    # `parent` isn't a recognized kwarg on the constructor and gets silently
-    # ignored, leaving the run as a fresh root with no parent (the bug that
-    # made every turn show up as a separate trace).
+# ---------------------------------------------------------------------------
+# Event spans — one span per received WebSocket event
+# ---------------------------------------------------------------------------
+
+_MAX_STR = 2000
+
+
+def _scrub(obj: Any) -> Any:
+    """Make an event payload safe + compact for a span.
+
+    Replaces raw `bytes` with a `<N bytes>` placeholder (audio/base64 blobs)
+    and truncates very long strings, so we never ship megabytes of payload to
+    LangSmith or blow up JSON serialization.
+    """
+    if isinstance(obj, bytes):
+        return f"<{len(obj)} bytes>"
+    if isinstance(obj, str):
+        if len(obj) > _MAX_STR:
+            return obj[:_MAX_STR] + f"... <+{len(obj) - _MAX_STR} chars>"
+        return obj
+    if isinstance(obj, dict):
+        return {k: _scrub(v) for k, v in obj.items()}
+    if isinstance(obj, (list, tuple)):
+        return [_scrub(v) for v in obj]
+    return obj
+
+
+def _dump_event(event: Any) -> dict[str, Any]:
+    """Best-effort conversion of a Realtime event to a plain dict."""
+    if hasattr(event, "model_dump"):
+        try:
+            return event.model_dump()
+        except Exception:
+            pass
+    if isinstance(event, dict):
+        return event
+    return {"repr": repr(event)}
+
+
+def _is_inbound(et: str) -> bool:
+    """Direction of an event relative to the model.
+
+    Inbound = something the user sent toward the model (their speech buffer,
+    their transcription) → goes in span `inputs`. Everything else (`response.*`,
+    `error`, `session.*`) is the model/server talking back → span `outputs`.
+    """
+    return et.startswith("input_audio_buffer") or "input_audio_transcription" in et
+
+
+@contextmanager
+def _start_event(session: _Session, event: Any, t_now: float) -> Iterator[RunTree]:
+    """Open a child span for one received event; close it when the body exits.
+
+    Wrapping the handler body means any real work done while handling the event
+    (the guardrail check, tool execution) nests inside this span — the same way
+    a tool call nests under the LLM step that triggered it in any traced app.
+
+    The event payload lands in `inputs` for user→model events and `outputs` for
+    model→user events, so the trace reads in the natural direction of flow.
+    """
+    session.event_count += 1
+    et = getattr(event, "type", "event")
+    payload = _scrub(_dump_event(event))
+    inbound = _is_inbound(et)
     run = session.run.create_child(
-        name="user_turn",
+        name=et,
         run_type="chain",
-        inputs={
-            "turn_index": session.turn_count,
-            "speech_started_at_s": round(t_started, 3),
-        },
-        tags=["turn"],
-        extra={"metadata": {
-            "thread_id": session.thread_id,
-            "turn_index": session.turn_count,
-        }},
+        inputs=payload if inbound else {},
+        tags=["event"],
+        extra={"metadata": {"received_at_s": round(t_now, 3)}},
     )
     run.post()
-    return _Turn(run=run, speech_started_at=t_started)
-
-
-def _finalize_turn(turn: _Turn) -> None:
-    outputs: dict[str, Any] = {
-        "user_transcript": turn.user_transcript,
-        "agent_transcript": turn.agent_transcript,
-        "response_count": turn.response_count,
-    }
-    if not turn.user_transcript:
-        outputs["noop"] = True
-    if turn.blocked:
-        outputs["blocked"] = True
-        outputs["block_reason"] = turn.block_reason
-    if turn.interrupted:
-        outputs["interrupted"] = True
-
-    # Per-stage latencies → metadata.turn_*  (mirrors livekit-demo's namespace).
-    extra: dict[str, Any] = turn.run.extra or {}
-    metadata: dict[str, Any] = dict(extra.get("metadata") or {})
-    if turn.speech_stopped_at is not None:
-        metadata["turn_user_speech_duration_ms"] = int(
-            (turn.speech_stopped_at - turn.speech_started_at) * 1000
-        )
-    if turn.transcription_at is not None and turn.speech_stopped_at is not None:
-        metadata["turn_transcription_latency_ms"] = int(
-            (turn.transcription_at - turn.speech_stopped_at) * 1000
-        )
-    if turn.response_created_at is not None and turn.transcription_at is not None:
-        metadata["turn_think_latency_ms"] = int(
-            (turn.response_created_at - turn.transcription_at) * 1000
-        )
-    if turn.first_response_audio_at is not None and turn.speech_stopped_at is not None:
-        # The number users actually perceive: how long after they stopped
-        # talking before the agent started talking.
-        metadata["turn_e2e_latency_ms"] = int(
-            (turn.first_response_audio_at - turn.speech_stopped_at) * 1000
-        )
-    extra["metadata"] = metadata
-    turn.run.extra = extra
-
-    if turn.user_audio:
-        turn.run.attachments = {
-            "user_utterance": ("audio/wav", _mono_pcm16_to_wav(bytes(turn.user_audio))),
-        }
-
-    tags = list(turn.run.tags or [])
-    if turn.interrupted and "interrupted" not in tags:
-        tags.append("interrupted")
-    if not turn.user_transcript and "no_transcript" not in tags:
-        tags.append("no_transcript")
-    turn.run.tags = tags
-
-    # Patch the latest inputs in case transcription updated them.
-    turn.run.inputs = {
-        "turn_index": metadata.get("turn_index"),
-        "user_transcript": turn.user_transcript,
-        "speech_started_at_s": round(turn.speech_started_at, 3),
-    }
-    turn.run.end(outputs=outputs)
-    turn.run.patch()
-
-
-def _start_response(session: _Session, turn: _Turn, t_created: float) -> _Response:
-    session.response_count += 1
-    turn.response_count += 1
-    # Same as in _start_turn — must use create_child(), not RunTree(parent=...).
-    run = turn.run.create_child(
-        name="agent_response",
-        # llm-kind so usage_metadata renders as token counts in the UI.
-        run_type="llm",
-        inputs={
-            "model": DEFAULT_MODEL,
-            "user_transcript": turn.user_transcript,
-            "turn_response_index": turn.response_count,
-        },
-        tags=["response"],
-    )
-    run.post()
-    return _Response(run=run, created_at=t_created)
-
-
-def _finalize_response(resp: _Response) -> None:
-    outputs: dict[str, Any] = {"transcript": resp.transcript}
-    if resp.tool_calls:
-        outputs["tool_calls"] = resp.tool_calls
-    if resp.cancelled:
-        outputs["cancelled"] = True
-
-    extra: dict[str, Any] = resp.run.extra or {}
-    metadata: dict[str, Any] = dict(extra.get("metadata") or {})
-    if resp.first_audio_at is not None:
-        metadata["response_ttfb_ms"] = int(
-            (resp.first_audio_at - resp.created_at) * 1000
-        )
-    if resp.done_at is not None:
-        metadata["response_duration_ms"] = int(
-            (resp.done_at - resp.created_at) * 1000
-        )
-    if resp.usage:
-        metadata["usage"] = resp.usage
-        # LangSmith reads `usage_metadata` to render tokens + cost.
-        extra["usage_metadata"] = {
-            "input_tokens": int(resp.usage.get("input_tokens") or 0),
-            "output_tokens": int(resp.usage.get("output_tokens") or 0),
-            "total_tokens": int(resp.usage.get("total_tokens") or 0),
-        }
-    extra["metadata"] = metadata
-    resp.run.extra = extra
-
-    if resp.audio:
-        resp.run.attachments = {
-            "response_audio": ("audio/wav", _mono_pcm16_to_wav(bytes(resp.audio))),
-        }
-
-    if resp.cancelled:
-        tags = list(resp.run.tags or [])
-        if "cancelled" not in tags:
-            tags.append("cancelled")
-        resp.run.tags = tags
-
-    resp.run.end(outputs=outputs)
-    resp.run.patch()
+    try:
+        yield run
+    finally:
+        run.end(outputs={} if inbound else payload)
+        run.patch()
 
 
 # ---------------------------------------------------------------------------
@@ -457,19 +325,6 @@ async def _execute_tool(name: str, raw_args: str) -> dict:
     if not city:
         return {"error": "missing city"}
     return await lookup_weather(city)
-
-
-def _coerce_usage(raw: Any) -> dict | None:
-    if raw is None:
-        return None
-    if hasattr(raw, "model_dump"):
-        return raw.model_dump()
-    if isinstance(raw, dict):
-        return raw
-    try:
-        return dict(raw)
-    except (TypeError, ValueError):
-        return None
 
 
 # ---------------------------------------------------------------------------
@@ -492,8 +347,6 @@ async def run(project_name: str) -> None:
     speaker = SpeakerStream(sample_rate=SAMPLE_RATE)
 
     session = _start_session(thread_id, project_name)
-    turn: _Turn | None = None
-    resp: _Response | None = None
     pending_tool_calls: list[tuple[str, str, str]] = []
 
     def _now() -> float:
@@ -542,14 +395,9 @@ async def run(project_name: str) -> None:
                         await connection.input_audio_buffer.append(
                             audio=base64.b64encode(frame).decode("ascii")
                         )
-                        t = _now()
-                        # Always record into the session's timestamped timeline.
-                        session.user_chunks.append((t, frame))
-                        # While the user is actively speaking (between
-                        # speech_started and speech_stopped), also record
-                        # into the per-turn utterance buffer.
-                        if turn is not None and turn.collecting_user_audio:
-                            turn.user_audio.extend(frame)
+                        # Record into the session's timestamped timeline for
+                        # the stereo conversation WAV.
+                        session.user_chunks.append((_now(), frame))
                         status.update_level(frame_level(frame))
 
                 mic_task = asyncio.create_task(pump_mic())
@@ -558,158 +406,90 @@ async def run(project_name: str) -> None:
                     et = event.type
                     t_now = _now()
 
-                    if et == "input_audio_buffer.speech_started":
-                        # New utterance. Always opens a new turn — if there
-                        # was a turn still in flight, the user is interrupting.
-                        speaker.clear()
-                        status.set_state("hearing you")
-
-                        if resp is not None:
-                            resp.cancelled = True
-                            resp.done_at = t_now
-                            _finalize_response(resp)
-                            resp = None
-                        if turn is not None:
-                            turn.interrupted = True
-                            turn.collecting_user_audio = False
-                            _finalize_turn(turn)
-                            turn = None
-
-                        turn = _start_turn(session, t_now)
-
-                    elif et == "input_audio_buffer.speech_stopped":
-                        if turn is not None:
-                            turn.speech_stopped_at = t_now
-                            turn.collecting_user_audio = False
-                        status.set_state("transcribing")
-
-                    elif et == "conversation.item.input_audio_transcription.completed":
-                        transcript = (event.transcript or "").strip()
-                        if turn is None:
-                            # Shouldn't happen — transcription without a
-                            # turn means we missed speech_started. Skip.
-                            continue
-                        turn.transcription_at = t_now
-
-                        if not transcript:
-                            # Noise turn — finalize as noop. Stays in the
-                            # trace tagged `no_transcript` for debugging.
-                            status.log("[openai] (no transcript — noise turn)")
-                            _finalize_turn(turn)
-                            turn = None
-                            status.set_state("listening")
-                            continue
-
-                        status.log(f"user:  {transcript}")
-                        turn.user_transcript = transcript
-
-                        status.set_state("guardrail")
-                        with tracing_context(parent=turn.run):
-                            verdict = await check_guardrail(transcript)
-
-                        if verdict.blocked:
-                            status.log(f"[openai] guardrail tripped: {verdict.reason}")
-                            turn.blocked = True
-                            turn.block_reason = verdict.reason
-                            status.set_state("refusing")
-                            await connection.response.create(
-                                response={"instructions": REFUSAL_INSTRUCTIONS}
-                            )
-                        else:
-                            status.set_state("thinking")
-                            await connection.response.create()
-
-                    elif et == "response.created":
-                        if turn is not None:
-                            if turn.response_created_at is None:
-                                turn.response_created_at = t_now
-                            resp = _start_response(session, turn, t_now)
-
-                    elif et == "response.output_audio.delta":
+                    # Raw audio: hundreds of chunks per response. Play it, but
+                    # don't span it.
+                    if et == "response.output_audio.delta":
                         chunk = base64.b64decode(event.delta)
                         speaker.write(chunk)
                         status.set_state("speaking")
                         session.agent_chunks.append((t_now, chunk))
-                        if resp is not None:
-                            if resp.first_audio_at is None:
-                                resp.first_audio_at = t_now
-                            resp.audio.extend(chunk)
-                        if turn is not None and turn.first_response_audio_at is None:
-                            turn.first_response_audio_at = t_now
+                        continue
 
-                    elif et == "response.output_audio_transcript.done":
-                        text = event.transcript or ""
-                        status.log(f"agent: {text}")
-                        if resp is not None:
-                            resp.transcript = text
-                        if turn is not None:
-                            if turn.agent_transcript:
-                                turn.agent_transcript += " "
-                            turn.agent_transcript += text
+                    # Skip every other streaming partial (`*.delta`) — they're
+                    # too noisy and the terminal `*.done` event carries the
+                    # complete payload.
+                    if et.endswith(".delta"):
+                        continue
 
-                    elif et == "response.function_call_arguments.done":
-                        pending_tool_calls.append(
-                            (event.name, event.call_id, event.arguments)
-                        )
+                    # Every other event becomes its own span, carrying the
+                    # event's payload. Work done while handling it (guardrail,
+                    # tools) nests inside via tracing_context(parent=ev).
+                    with _start_event(session, event, t_now) as ev:
+                        if et == "input_audio_buffer.speech_started":
+                            # Barge-in: flush whatever the agent was still saying.
+                            speaker.clear()
+                            status.set_state("hearing you")
 
-                    elif et == "response.done":
-                        if resp is not None:
-                            resp.done_at = t_now
-                            resp.usage = _coerce_usage(
-                                getattr(getattr(event, "response", None), "usage", None)
+                        elif et == "input_audio_buffer.speech_stopped":
+                            status.set_state("transcribing")
+
+                        elif et == "conversation.item.input_audio_transcription.completed":
+                            transcript = (event.transcript or "").strip()
+                            if not transcript:
+                                # Noise — nothing usable was transcribed.
+                                status.log("[openai] (no transcript — noise turn)")
+                                status.set_state("listening")
+                            else:
+                                status.log(f"user:  {transcript}")
+                                status.set_state("guardrail")
+                                with tracing_context(parent=ev):
+                                    verdict = await check_guardrail(transcript)
+
+                                if verdict.blocked:
+                                    status.log(
+                                        f"[openai] guardrail tripped: {verdict.reason}"
+                                    )
+                                    status.set_state("refusing")
+                                    await connection.response.create(
+                                        response={"instructions": REFUSAL_INSTRUCTIONS}
+                                    )
+                                else:
+                                    status.set_state("thinking")
+                                    await connection.response.create()
+
+                        elif et == "response.output_audio_transcript.done":
+                            status.log(f"agent: {event.transcript or ''}")
+
+                        elif et == "response.function_call_arguments.done":
+                            pending_tool_calls.append(
+                                (event.name, event.call_id, event.arguments)
                             )
 
-                        if pending_tool_calls:
-                            # Intermediate response.done — model emitted tool
-                            # calls. Run them nested under THIS response, then
-                            # close it so the follow-up becomes its own child.
-                            status.set_state("running tools")
-                            calls, pending_tool_calls = pending_tool_calls, []
-                            for name, call_id, raw_args in calls:
-                                parent = resp.run if resp is not None else (
-                                    turn.run if turn is not None else None
-                                )
-                                with tracing_context(parent=parent):
-                                    result = await _execute_tool(name, raw_args)
-                                if resp is not None:
-                                    resp.tool_calls.append(
-                                        {"name": name, "arguments": raw_args, "result": result}
+                        elif et == "response.done":
+                            if pending_tool_calls:
+                                # Model emitted tool calls — run them nested
+                                # under THIS event, then ask for the follow-up.
+                                status.set_state("running tools")
+                                calls, pending_tool_calls = pending_tool_calls, []
+                                for name, call_id, raw_args in calls:
+                                    with tracing_context(parent=ev):
+                                        result = await _execute_tool(name, raw_args)
+                                    await connection.conversation.item.create(
+                                        item={
+                                            "type": "function_call_output",
+                                            "call_id": call_id,
+                                            "output": json.dumps(result),
+                                        }
                                     )
-                                await connection.conversation.item.create(
-                                    item={
-                                        "type": "function_call_output",
-                                        "call_id": call_id,
-                                        "output": json.dumps(result),
-                                    }
-                                )
-                            if resp is not None:
-                                _finalize_response(resp)
-                                resp = None
-                            status.set_state("thinking")
-                            await connection.response.create()
-                        else:
-                            # Terminal response.done — close response + turn.
-                            if resp is not None:
-                                _finalize_response(resp)
-                                resp = None
-                            if turn is not None:
-                                _finalize_turn(turn)
-                                turn = None
-                            status.set_state("listening")
+                                status.set_state("thinking")
+                                await connection.response.create()
+                            else:
+                                status.set_state("listening")
 
-                    elif et == "error":
-                        status.log(f"[openai] server error: {event.error}")
+                        elif et == "error":
+                            status.log(f"[openai] server error: {event.error}")
 
         finally:
-            # Close children before the session root.
-            if resp is not None:
-                resp.cancelled = True
-                resp.done_at = _now()
-                _finalize_response(resp)
-            if turn is not None:
-                turn.interrupted = True
-                turn.collecting_user_audio = False
-                _finalize_turn(turn)
             try:
                 mic_task.cancel()  # type: ignore[name-defined]
             except NameError:

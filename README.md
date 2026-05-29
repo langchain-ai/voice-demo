@@ -11,8 +11,8 @@ The point isn't the agents (they're toy weather assistants). The point is **how 
 | Backend | Tracing path | Why |
 |---|---|---|
 | LiveKit | OTEL + processor that translates `lk.*` → `gen_ai.*` / `langsmith.*` | LiveKit runs the full STT/LLM/TTS/VAD pipeline in-process and emits OTel spans for every stage. Translating attribute names lets us inherit all of it — transcripts, per-stage latencies, model names, EOU probabilities, audio attachments — for free. |
-| OpenAI Realtime | SDK `RunTree`, built explicitly per turn | Realtime is a remote WebSocket: we observe an event stream (`input_audio_buffer.speech_started`, `response.created`, etc.) and build the trace ourselves. The SDK gives us multipart audio attachments, mid-run patching, first-class interruption status, and tool calls as proper child runs. |
-| Google ADK Live | SDK `RunTree`, built explicitly per turn | Same situation: `Runner.run_live` is a remote stream over the wire. ADK's OTel instrumentation covers its non-live paths but **doesn't emit spans for `run_live`** — going OTel-only here produces an empty root span with no children. We translate the events we observe (`input_transcription`, `inline_data`, `function_call`, `turn_complete`) into the same RunTree shape as OpenAI. |
+| OpenAI Realtime | SDK `RunTree`, one span per event | Realtime is a remote WebSocket: we observe an event stream (`input_audio_buffer.speech_started`, `response.created`, etc.) and build the trace ourselves. Every event becomes its own child span under the session root, carrying that event's full payload — so the trace mirrors *exactly what the server sent*. The SDK gives us multipart audio attachments and tool calls as proper child runs that nest under the event being handled. |
+| Google ADK Live | SDK `RunTree`, one span per event | Same situation: `Runner.run_live` is a remote stream over the wire. ADK's OTel instrumentation covers its non-live paths but **doesn't emit spans for `run_live`** — going OTel-only here produces an empty root span with no children. We span each event we observe (`input_transcription`, `function_call`, `turn_complete`, …) in the same RunTree shape as OpenAI. |
 
 The folder layout reflects this: LiveKit pairs its `agent.py` with a `processor.py` that enriches OTel spans before export. OpenAI and ADK each have just an `agent.py` (no processor) — the visible signal that they build the trace via the SDK directly.
 
@@ -24,11 +24,11 @@ src/voice_demo/
 ├── audio.py               # shared MicStream + SpeakerStream (sounddevice, PCM16)
 ├── tracing.py             # shared LangSmith env wiring
 ├── openai/
-│   ├── agent.py           # Realtime event loop + RunTree per turn
+│   ├── agent.py           # Realtime event loop + RunTree span per event
 │   ├── guardrail.py       # @traceable LangChain structured-output guardrail
 │   └── tools.py           # @traceable Open-Meteo weather lookup
 ├── adk/
-│   └── agent.py           # ADK Runner.run_live() driver + RunTree per turn
+│   └── agent.py           # ADK Runner.run_live() driver + RunTree span per event
 └── livekit/
     ├── agent.py           # AgentSession in console mode + tracer setup
     ├── processor.py       # OTEL processor (lk.* translation, audio attachment)
@@ -71,40 +71,37 @@ Try:
 
 Each backend lands in its own project: `voice-demo-openai`, `voice-demo-adk`, `voice-demo-livekit`.
 
-**OpenAI** — one conversation is one trace:
+**OpenAI** — one conversation is one trace. Every WebSocket event becomes its own span under the session root, in arrival order, carrying that event's full (scrubbed) payload — in `inputs` if the user sent it toward the model (speech buffer, transcription), in `outputs` if the model/server sent it back (`response.*`, `error`):
 ```
-realtime_session                    (root; one stereo conversation.wav: L=user, R=agent)
-├── user_turn 1                     (opened on speech_started, audio: user_utterance.wav)
-│   │   metadata: turn_user_speech_duration_ms, turn_transcription_latency_ms,
-│   │             turn_think_latency_ms, turn_e2e_latency_ms
-│   ├── guardrail
-│   └── agent_response (1.1)        (per response.create→done cycle; response_audio.wav)
-│       │   metadata: response_ttfb_ms, response_duration_ms
-│       │   usage_metadata: { input_tokens, output_tokens, total_tokens }
-│       └── lookup_weather × N      (nested under the response that called them)
-├── user_turn 2 [tag: interrupted]
-│   └── agent_response (2.1) [tag: cancelled]   (partial transcript + cut-off audio)
-├── user_turn 3 [tag: no_transcript]   (noise / cough; outputs: { noop: true })
-└── user_turn 4
-    ├── agent_response (4.1)        (emits tool calls)
-    │   └── lookup_weather × 2
-    └── agent_response (4.2)        (post-tool follow-up speech)
+realtime_session                                 (root; one stereo conversation.wav: L=user, R=agent)
+│   metadata: event_count, duration_s
+├── input_audio_buffer.speech_started            (event)
+├── input_audio_buffer.speech_stopped            (event)
+├── conversation.item.input_audio_transcription.completed   (event)
+│   └── guardrail                                (ran while handling this event)
+├── response.created                             (event)
+├── response.function_call_arguments.done        (event)
+├── response.done                                (event)
+│   └── lookup_weather × N                       (ran while handling this event)
+├── response.done                                (event — post-tool follow-up)
+└── error                                        (event, if the server sent one)
 ```
-Turn boundaries are VAD events (`speech_started` → terminal `response.done`), not transcription — so per-stage latency is observable end-to-end and noise turns stay in the trace tagged `no_transcript` for debugging "why didn't the agent hear me?". Each response cycle is its own `agent_response` child, so cancelled responses don't pollute the turn. The session root carries a single **stereo WAV** reconstructed from timestamped chunks (user on left, agent on right — interruption shows as overlap).
+Raw audio (`response.output_audio.delta`) is played but not spanned, and every other streaming partial (`*.delta`) is dropped — the terminal `*.done` events carry the complete payload. Work the agent does *while handling* an event (the guardrail check, tool execution) nests inside that event's span, exactly as a tool call would in any other traced app. The session root carries a single **stereo WAV** reconstructed from timestamped chunks (user on left, agent on right — interruption shows as overlap).
 
-**ADK** — same shape as OpenAI (one conversation = one trace):
+**ADK** — same shape as OpenAI (one conversation = one trace), spanning each `run_live` event:
 ```
 realtime_session                    (root; one stereo conversation.wav: L=user, R=agent)
-├── user_turn 1                     (opens on first event after last turn_complete;
-│   │                                attachments: user_utterance.wav)
-│   │   metadata: turn_duration_ms, agent_audio_duration_ms, e2e_latency_ms
-│   │   inputs:  user_transcript
-│   │   outputs: agent_transcript
-│   └── execute_tool: get_weather   (per function_call seen)
-├── user_turn 2 [tag: interrupted]
-└── user_turn 3 [tag: no_transcript]   (noise / cough; outputs: { noop: true })
+│   metadata: thread_id, model, event_count, duration_s
+├── input_transcription            (event — user speech chunk)
+├── output_transcription           (event — agent speech chunk)
+├── function_call: get_weather     (event)
+│   └── execute_tool: get_weather  (real tool child; finalized when the matching
+│                                   function_response arrives)
+├── function_response: get_weather (event)
+├── turn_complete                  (event)
+└── interrupted                    (event)
 ```
-Built explicitly with `RunTree` because ADK's OTel instrumentation doesn't cover `Runner.run_live`. Per-stage latency is coarser than OpenAI's (no explicit `speech_started/stopped` events from ADK — we get an `e2e_latency_ms` from first `input_transcription` to first agent audio instead).
+Built explicitly with `RunTree` because ADK's OTel instrumentation doesn't cover `Runner.run_live`. Events whose *only* payload is an audio chunk are played but not spanned (there are too many), and every recorded event has its audio bytes scrubbed to a `<N bytes>` placeholder. Tool calls trace as proper child runs — the parents are simply the literal events instead of synthesized turns.
 
 **LiveKit**:
 ```
