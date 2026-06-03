@@ -17,10 +17,14 @@ it explicitly once the LangSmith env is wired and confirmed present.
 The trace shape in LangSmith:
 
     conversation                      (root; attaches the whole-conversation WAV)
-    └── turn × N                      (per exchange; turn.was_interrupted, turn audio)
+    └── turn × N                      (per exchange; carries turn.was_interrupted)
         ├── stt                       (audio → transcript)
         ├── llm                       (messages → response, incl. tool calls)
         └── tts                       (response text → audio)
+
+The whole-conversation WAV is attached to the root `conversation` span (built by
+the recording transport from what was actually played). Per-turn audio is not
+attached.
 """
 
 from __future__ import annotations
@@ -45,20 +49,20 @@ class LangSmithSpanProcessor(SpanProcessor):
         self.turn_messages: dict = {}  # parent_span_id -> list of messages
         self.trace_to_conversation_id: dict = {}  # trace_id -> conversation_id
         self.conversation_recordings: dict = {}  # conversation_id -> recording_path
-        self.conversation_recorders: dict = {}  # conversation_id -> AudioRecorder
-        self.turn_audio_recorders: dict = {}  # conversation_id -> TurnAudioRecorder
+        self.conversation_recorders: dict = {}  # conversation_id -> ConversationRecorder
 
     # -- recorder registration ------------------------------------------------
 
     def register_recording(self, conversation_id, recording_path, audio_recorder=None):
-        """Register the whole-conversation recording for the root span."""
+        """Register the whole-conversation recording for the root span.
+
+        `audio_recorder`, if given, is any object with a `save_recording()`
+        method — it's invoked when the conversation span ends so the file is on
+        disk before we read and attach it.
+        """
         self.conversation_recordings[conversation_id] = recording_path
         if audio_recorder:
             self.conversation_recorders[conversation_id] = audio_recorder
-
-    def register_turn_audio_recorder(self, conversation_id, turn_audio_recorder):
-        """Register the per-turn recorder so turn spans can attach their audio."""
-        self.turn_audio_recorders[conversation_id] = turn_audio_recorder
 
     # -- span lifecycle -------------------------------------------------------
 
@@ -165,8 +169,8 @@ class LangSmithSpanProcessor(SpanProcessor):
                 span, [{"role": "assistant", "content": status}]
             )
 
-        self._attach_turn_audio(span, trace_id, turn_number)
-
+        # Audio lives on the conversation root span (one stereo WAV of the whole
+        # call); per-turn audio attachment was intentionally dropped.
         if span_id in self.turn_messages:
             del self.turn_messages[span_id]
 
@@ -206,32 +210,6 @@ class LangSmithSpanProcessor(SpanProcessor):
 
     # -- audio attachment -----------------------------------------------------
 
-    def _attach_turn_audio(self, span: ReadableSpan, trace_id: str, turn_number) -> None:
-        conversation_id = span.attributes.get(
-            "conversation.id", ""
-        ) or self.trace_to_conversation_id.get(trace_id, "")
-        recorder = self.turn_audio_recorders.get(conversation_id)
-        if recorder is None:
-            return
-
-        turn_files = recorder.save_turn_audio_sync(turn_number)
-        attachments = []
-        for role, key in (("user", "user"), ("ai", "ai")):
-            path = turn_files.get(key)
-            if not path:
-                continue
-            encoded = self._load_audio_file(path)
-            if encoded:
-                attachments.append(
-                    {
-                        "name": f"turn_{turn_number}_{role}.wav",
-                        "content": encoded,
-                        "mime_type": "audio/wav",
-                    }
-                )
-        if attachments:
-            span._attributes["langsmith.attachments"] = json.dumps(attachments)
-
     def _attach_conversation_audio(self, span: ReadableSpan, conversation_id) -> None:
         recorder = self.conversation_recorders.get(conversation_id)
         if recorder is not None:
@@ -264,7 +242,6 @@ class LangSmithSpanProcessor(SpanProcessor):
         self.trace_to_conversation_id.pop(trace_id, None)
         self.conversation_recordings.pop(conversation_id, None)
         self.conversation_recorders.pop(conversation_id, None)
-        self.turn_audio_recorders.pop(conversation_id, None)
 
     # -- attribute helpers ----------------------------------------------------
 

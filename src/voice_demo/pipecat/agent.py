@@ -8,30 +8,41 @@ does the hard work; we just register the `LangSmithSpanProcessor` (in
 `processor.py`) that rewrites those spans into the `gen_ai.*` / `langsmith.*`
 namespaces LangSmith keys off, and attach the recorded audio.
 
-This mirrors the official LangChain × Pipecat tracing demo
-(github.com/langchain-ai/voice-agents-tracing), adapted to this repo: OpenAI STT
-instead of local Whisper, and the same weather-assistant + `lookup_weather` tool
-as the other backends (so tool calls show up in the trace).
+The "brain" is an in-process **LangGraph** graph (see `graph.py`) plugged in via
+`LangGraphLLMService` (see `langgraph_llm_service.py`) — not Pipecat's stock
+`OpenAILLMService`. Because that service subclasses `OpenAILLMService` and runs
+the graph inside Pipecat's `@traced_llm` `llm` span, every graph node (a content
+guardrail, the model, tool calls) nests as a **subspan of the `llm` span** when
+`LANGSMITH_TRACING_MODE=otel` is set — so you can watch steps that are traced but
+never spoken (the guardrail) and fully customize the graph. This mirrors the
+LiveKit backend's "LangGraph brain + OTel" design (and the official LangChain ×
+Pipecat tracing demo's span-translation approach in `processor.py`).
 
 ## Interruption handling
 
 Barge-in is a first-class part of the pipeline, not an afterthought:
 
-  * `SileroVADAnalyzer` on the transport input detects when the user starts
+  * `SileroVADAnalyzer` on the user aggregator detects when the user starts
     speaking; Pipecat's turn strategies then immediately cut off the bot's
     in-flight TTS — it truncates the spoken output and discards the rest. (This
     is on by default once a VAD analyzer is present, which is why we don't set
     the deprecated `allow_interruptions` flag.)
-  * `register_function(..., cancel_on_interruption=True)` cancels an in-flight
-    tool call if the user interrupts before it returns.
+  * The graph is stateless and Pipecat's `LLMContext` is the single source of
+    truth, so an interrupted, never-heard turn never lingers in graph memory.
   * The turn tracker (`enable_turn_tracking=True`) records `was_interrupted` on
     each turn; the span processor surfaces that onto the LangSmith `turn` span,
-    and we also log it here. The per-turn audio recorder captures exactly what
-    was spoken before the cut, so an interrupted turn's audio reflects reality.
+    and we also log it here.
 
-Audio I/O is owned by Pipecat's `LocalAudioTransport` (the framework's console
-transport), which is why this backend doesn't use `voice_demo.audio` — the same
-reason the LiveKit backend doesn't.
+Recording captures *what was heard*, not what was generated: a
+`RecordingLocalAudioTransport` (see `recording_transport.py`) taps the played
+agent audio at the device-write boundary — reached only after barge-in
+truncation — plus the user's mic, and writes one stereo WAV (L=user, R=agent)
+via the shared `sdk_tracing.build_stereo_session_wav`, exactly as the OpenAI/ADK
+backends do. (Per-turn audio snippets were dropped — full conversation only.)
+
+Audio I/O is otherwise owned by Pipecat's `LocalAudioTransport` (the framework's
+console transport), which is why this backend doesn't use `voice_demo.audio` —
+the same reason the LiveKit backend doesn't.
 """
 
 from __future__ import annotations
@@ -41,42 +52,6 @@ import sys
 import uuid
 from datetime import datetime
 from pathlib import Path
-
-
-def _build_weather_tools():
-    """Define the `lookup_weather` tool schema + async handler.
-
-    Returns `(tools_schema, handler)`. The handler calls the shared Open-Meteo
-    fetch and feeds the result back into the conversation via the result
-    callback so the model can summarize it in its next spoken turn.
-    """
-    from pipecat.adapters.schemas.function_schema import FunctionSchema
-    from pipecat.adapters.schemas.tools_schema import ToolsSchema
-    from pipecat.services.llm_service import FunctionCallParams
-
-    from ..weather import fetch_weather
-
-    weather_fn = FunctionSchema(
-        name="lookup_weather",
-        description=(
-            "Get the current weather for a single city. "
-            "Call once per city for multi-city questions."
-        ),
-        properties={
-            "city": {
-                "type": "string",
-                "description": "City name, e.g. 'San Francisco' or 'Tokyo'.",
-            },
-        },
-        required=["city"],
-    )
-
-    async def handle_lookup_weather(params: FunctionCallParams) -> None:
-        city = (params.arguments.get("city") or "").strip()
-        result = await fetch_weather(city) if city else {"error": "missing city"}
-        await params.result_callback(result)
-
-    return ToolsSchema(standard_tools=[weather_fn]), handle_lookup_weather
 
 
 SYSTEM_PROMPT = (
@@ -116,17 +91,14 @@ async def run(project_name: str) -> None:
         LLMContextAggregatorPair,
         LLMUserAggregatorParams,
     )
-    from pipecat.services.openai.llm import OpenAILLMService
     from pipecat.services.openai.stt import OpenAISTTService
     from pipecat.services.openai.tts import OpenAITTSService
-    from pipecat.transports.local.audio import (
-        LocalAudioTransport,
-        LocalAudioTransportParams,
-    )
+    from pipecat.transports.local.audio import LocalAudioTransportParams
 
-    from .audio_recorder import AudioRecorder
+    from .graph import build_graph
+    from .langgraph_llm_service import LangGraphLLMService
     from .processor import setup_langsmith_tracing
-    from .turn_audio_recorder import TurnAudioRecorder
+    from .recording_transport import ConversationRecorder, RecordingLocalAudioTransport
 
     conversation_id = str(uuid.uuid4())
 
@@ -146,63 +118,57 @@ async def run(project_name: str) -> None:
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     recording_path = recordings_dir / f"conversation_{timestamp}.wav"
 
-    transport = LocalAudioTransport(
+    # Record at the device-write boundary so the WAV captures what was *heard*,
+    # not what was generated: the recording transport taps played agent audio in
+    # write_audio_frame (reached only after barge-in truncation) and user audio
+    # off the input callback, then writes one stereo WAV via the shared
+    # build_stereo_session_wav — the same artifact the OpenAI/ADK backends emit.
+    recorder = ConversationRecorder(recording_path)
+    transport = RecordingLocalAudioTransport(
         LocalAudioTransportParams(
             audio_in_enabled=True,
             audio_out_enabled=True,
-        )
+        ),
+        recorder,
     )
 
     stt = OpenAISTTService(settings=OpenAISTTService.Settings(model=STT_MODEL))
-    llm = OpenAILLMService(
-        settings=OpenAILLMService.Settings(
+    # The LLM stage is a LangGraph graph (guardrail → agent ⇄ tools). It runs
+    # in-process inside Pipecat's `llm` span, so its nodes nest as subspans.
+    # Tools live in the graph, not on the Pipecat context.
+    llm = LangGraphLLMService(
+        graph=build_graph(SYSTEM_PROMPT),
+        settings=LangGraphLLMService.Settings(
             model=LLM_MODEL, system_instruction=SYSTEM_PROMPT
-        )
+        ),
     )
     tts = OpenAITTSService(settings=OpenAITTSService.Settings(voice=TTS_VOICE))
 
-    tools, handle_lookup_weather = _build_weather_tools()
-    # cancel_on_interruption: if the user barges in before the lookup returns,
-    # drop the in-flight call rather than speaking a now-stale result.
-    llm.register_function(
-        "lookup_weather", handle_lookup_weather, cancel_on_interruption=True
-    )
-
-    # Universal LLM context (pipecat ≥1.x). Tools live on the context; the
-    # aggregator pair feeds user/assistant turns in and out of it. The VAD
-    # analyzer goes on the USER aggregator (not the transport) — that's what
-    # delimits the user's turn so STT commits a segment and the LLM runs.
-    context = LLMContext(tools=tools)
+    # Universal LLM context (pipecat ≥1.x). The aggregator pair feeds
+    # user/assistant turns in and out of it. The VAD analyzer goes on the USER
+    # aggregator (not the transport) — that's what delimits the user's turn so
+    # STT commits a segment and the LLM runs.
+    context = LLMContext()
     context_aggregator = LLMContextAggregatorPair(
         context,
         user_params=LLMUserAggregatorParams(vad_analyzer=SileroVADAnalyzer()),
     )
 
-    audio_recorder = AudioRecorder(str(recording_path))
-    turn_audio_recorder = TurnAudioRecorder(
-        span_processor=span_processor,
-        conversation_id=conversation_id,
-        recordings_dir=recordings_dir,
-    )
-
+    # The span processor attaches this file to the conversation root span when
+    # that span ends — it calls recorder.save_recording() first (duck-typed).
     if span_processor is not None:
         span_processor.register_recording(
-            conversation_id, str(recording_path), audio_recorder=audio_recorder
-        )
-        span_processor.register_turn_audio_recorder(
-            conversation_id, turn_audio_recorder
+            conversation_id, str(recording_path), audio_recorder=recorder
         )
 
     pipeline = Pipeline(
         [
-            transport.input(),  # mic in
+            transport.input(),  # mic in (taps user audio for the recording)
             stt,  # speech → text
             context_aggregator.user(),  # add user msg to context
             llm,  # text → response (+ tool calls)
             tts,  # response → speech
-            audio_recorder,  # whole-conversation WAV
-            turn_audio_recorder,  # per-turn WAV snippets
-            transport.output(),  # speaker out
+            transport.output(),  # speaker out (taps played agent audio)
             context_aggregator.assistant(),  # add assistant msg to context
         ]
     )
@@ -215,10 +181,9 @@ async def run(project_name: str) -> None:
         conversation_id=conversation_id,
     )
 
-    # Connect the turn tracker so per-turn audio is captured, and log barge-ins.
+    # Log barge-ins (the per-turn audio recorder is gone; full-conversation only).
     turn_tracker = task.turn_tracking_observer
     if turn_tracker is not None:
-        turn_audio_recorder.connect_to_turn_tracker(turn_tracker)
 
         async def _on_turn_ended(_observer, turn_number, duration, was_interrupted):
             if was_interrupted:
@@ -228,8 +193,6 @@ async def run(project_name: str) -> None:
                 )
 
         turn_tracker.add_event_handler("on_turn_ended", _on_turn_ended)
-    else:
-        logger.warning("[pipecat] no turn tracker — per-turn audio disabled")
 
     # Kick off with a short spoken greeting so the bot speaks first — this also
     # makes the opening turn a real (completing) turn rather than an idle one.
@@ -245,7 +208,8 @@ async def run(project_name: str) -> None:
     try:
         await runner.run(task)
     finally:
-        # Save before the conversation span finalizes (the processor attaches
-        # this file when the `conversation` span ends).
-        audio_recorder.save_recording()
+        # Idempotent — also called by the span processor when the conversation
+        # span ends (so the file exists in time to be attached). This covers the
+        # no-tracing path and any shutdown ordering.
+        recorder.save_recording()
         logger.info(f"[pipecat] recording saved to {recording_path}")

@@ -309,6 +309,14 @@ async def run(
     last_agent_chunk_at = 0.0
     AGENT_QUIET_THRESHOLD_S = 0.5
 
+    # Record the AGENT side at the speaker (what was played), not at receipt —
+    # so audio that barge-in flushes via clear() is excluded and the WAV
+    # reflects what was heard. (The receipt-time `last_agent_chunk_at` below is
+    # a separate signal, used only for interrupt-vs-bleed disambiguation.)
+    audio_out.set_played_callback(
+        lambda data: session.record_agent(session.now(), data)
+    )
+
     audio_in.start()
     audio_out.start()
     ui.set_state("listening")
@@ -389,7 +397,11 @@ async def run(
                                 chunk = inline.data
                                 audio_out.write(chunk)
                                 ui.set_state("speaking")
-                                session.record_agent(t_now, chunk)
+                                # Recorded via the speaker's played-callback (see
+                                # set_played_callback above), not here — so the
+                                # WAV captures what was played, not what was
+                                # generated. last_agent_chunk_at stays on receipt
+                                # time: it gauges whether audio is still arriving.
                                 last_agent_chunk_at = time.monotonic()
 
                             # Tool call (server invoked a function)

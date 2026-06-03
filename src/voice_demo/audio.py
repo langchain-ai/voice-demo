@@ -23,7 +23,7 @@ from __future__ import annotations
 import asyncio
 import queue
 import threading
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Callable
 from typing import Protocol, runtime_checkable
 
 import sounddevice as sd
@@ -68,6 +68,17 @@ class AudioOutput(Protocol):
 
     def clear(self) -> None:
         """Drop any buffered audio. Used on barge-in / interruption."""
+        ...
+
+    def set_played_callback(self, callback: Callable[[bytes], None] | None) -> None:
+        """Register a sink called with the PCM16 bytes *actually played*.
+
+        Invoked from the audio device thread as audio is consumed by the
+        speaker, so it reflects what the listener heard — audio dropped by
+        `clear()` on barge-in is never played and so never reaches this
+        callback. This is the correct tap point for "what was heard" recording,
+        as opposed to recording at `write()` (which is what was *generated*).
+        """
         ...
 
     def stop(self) -> None: ...
@@ -129,6 +140,11 @@ class SpeakerStream:
 
     Backed by a `queue.Queue` because PortAudio's callback runs on its own
     thread. `.clear()` drops any buffered audio — used on barge-in.
+
+    For accurate "what was heard" recording, register a played-callback via
+    `set_played_callback`: it fires from the device thread with exactly the
+    PCM16 bytes pulled into the speaker, so audio that `clear()` drops on
+    barge-in is never reported (it was never heard).
     """
 
     def __init__(self, sample_rate: int = 24_000) -> None:
@@ -138,6 +154,10 @@ class SpeakerStream:
         self._buffer = bytearray()
         self._stream: sd.RawOutputStream | None = None
         self._lock = threading.Lock()
+        self._on_played: Callable[[bytes], None] | None = None
+
+    def set_played_callback(self, callback: Callable[[bytes], None] | None) -> None:
+        self._on_played = callback
 
     def start(self) -> None:
         def callback(outdata, frames, time_info, status):  # noqa: ANN001
@@ -150,12 +170,18 @@ class SpeakerStream:
                         break
                     self._buffer.extend(chunk)
                 if len(self._buffer) >= needed:
-                    outdata[:] = bytes(self._buffer[:needed])
+                    played = bytes(self._buffer[:needed])
+                    outdata[:] = played
                     del self._buffer[:needed]
                 else:
-                    out = bytes(self._buffer) + b"\x00" * (needed - len(self._buffer))
-                    outdata[:] = out
+                    # Underrun: only the real (non-silence) prefix was heard.
+                    played = bytes(self._buffer)
+                    outdata[:] = played + b"\x00" * (needed - len(played))
                     self._buffer.clear()
+            # Report what was actually played, outside the lock. Silence padding
+            # on underrun is intentionally excluded — it's a gap, not content.
+            if self._on_played is not None and played:
+                self._on_played(played)
 
         self._stream = sd.RawOutputStream(
             samplerate=self.sample_rate,

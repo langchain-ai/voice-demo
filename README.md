@@ -13,7 +13,7 @@ The point isn't the agents (they're toy weather assistants). The point is **how 
 | OpenAI Realtime | SDK `RunTree`, one span per event | Realtime is a remote WebSocket: we observe an event stream (`input_audio_buffer.speech_started`, `response.created`, …) and build the trace ourselves. Every event becomes its own child span under the session root, carrying that event's full payload — so the trace mirrors *exactly what the server sent*. |
 | Google ADK Live | SDK `RunTree`, one span per event | Same situation: `Runner.run_live` is a remote stream. ADK's OTel instrumentation covers its non-live paths but **doesn't emit spans for `run_live`** — going OTel-only produces an empty root span. We span each event we observe, in the same RunTree shape as OpenAI. |
 | LiveKit | OTEL + processor that translates `lk.*` → `gen_ai.*` / `langsmith.*` | LiveKit runs the full STT/LLM/TTS/VAD pipeline in-process and emits OTel spans for every stage. Translating attribute names lets us inherit all of it — transcripts, per-stage latencies, model names, EOU probabilities, audio attachments — for free. |
-| Pipecat | OTEL + processor that maps Pipecat spans → `gen_ai.*` / `langsmith.*` | Pipecat also runs in-process and emits OTel spans (`conversation` / `turn` / `stt` / `llm` / `tts`) behind `enable_tracing=True`. A span processor rewrites them into LangSmith's namespaces and attaches whole-conversation + per-turn audio. |
+| Pipecat | OTEL + processor that maps Pipecat spans → `gen_ai.*` / `langsmith.*` | Pipecat also runs in-process and emits OTel spans (`conversation` / `turn` / `stt` / `llm` / `tts`) behind `enable_tracing=True`. A span processor rewrites them into LangSmith's namespaces and attaches the whole-conversation audio. |
 
 The folder layout reflects this: the two **OTEL** backends (LiveKit, Pipecat) each pair an `agent.py` with a `processor.py` that enriches OTel spans before export. The two **SDK** backends (OpenAI, ADK) have no processor — they build the trace via `voice_demo.sdk_tracing` directly.
 
@@ -52,10 +52,11 @@ src/voice_demo/
 │   ├── processor.py        # OTEL processor (lk.* → gen_ai.*, audio attachment, per-turn latency)
 │   └── _thread_id.py      # ContextVar for stable per-session thread_id
 └── pipecat/
-    ├── agent.py           # Pipeline (OpenAI STT/LLM/TTS, Silero VAD) + interruption handling
+    ├── agent.py           # Pipeline (OpenAI STT/TTS, Silero VAD, LangGraph LLM) + interruption
+    ├── graph.py           # in-process LangGraph brain: guardrail → agent ⇄ tools
+    ├── langgraph_llm_service.py  # runs the graph inside Pipecat's `llm` span (nests its subspans)
     ├── processor.py        # OTEL processor (Pipecat spans → gen_ai.*, audio attachment)
-    ├── audio_recorder.py   # whole-conversation WAV FrameProcessor
-    └── turn_audio_recorder.py  # per-turn WAV FrameProcessor
+    └── recording_transport.py  # LocalAudioTransport that records what was *heard* (stereo WAV)
 ```
 
 ## Setup
@@ -90,7 +91,7 @@ Try:
 - "What's the weather in San Francisco?"
 - "How's the weather in Tokyo and Rome right now?"
 - Interrupt the agent while it's talking — watch it stop and listen.
-- (OpenAI only) "What do you think about pineapple on pizza?" — guardrail trips, theatrical refusal.
+- (OpenAI & Pipecat) "What do you think about pineapple on pizza?" — guardrail trips, theatrical refusal. On Pipecat the guardrail is a non-spoken node you can watch as a subspan under the `llm` span.
 
 ## What you see in LangSmith
 
@@ -137,14 +138,20 @@ job_entrypoint                      (root, attaches the full conversation WAV)
         └── tts_node                (TTS — voice + audio_duration)
 ```
 
-**Pipecat**:
+**Pipecat** — the LLM stage is an in-process **LangGraph** graph, so its nodes nest as subspans *under* Pipecat's `llm` span (one trace). Steps that are traced but never spoken — like the content guardrail — show up too:
 ```
-conversation                        (root; attaches the whole-conversation WAV)
-└── turn × N                        (one exchange; turn.was_interrupted, per-turn user+ai WAVs attached)
+conversation                        (root; attaches the stereo what-was-heard WAV: L=user, R=agent)
+└── turn × N                        (one exchange; carries turn.was_interrupted)
     ├── stt                         (audio → transcript)
-    ├── llm                         (messages → response, including lookup_weather tool calls)
+    ├── llm                         (Pipecat's LLM span — LangGraphLLMService)
+    │   └── LangGraph
+    │       ├── guardrail           (structured-output check — traced, NOT spoken)
+    │       ├── call_model          (ChatOpenAI; may emit tool calls)
+    │       ├── tools: lookup_weather
+    │       └── call_model          (final answer — spoken)
     └── tts                         (response text → audio)
 ```
+This works because `LangGraphLLMService` subclasses Pipecat's `OpenAILLMService` and runs the graph inside its `@traced_llm` `llm` span (opened with `start_as_current_span`); with `LANGSMITH_TRACING_MODE=otel`, LangChain/LangGraph emit OTel spans through the shared provider and inherit that span as parent. It's the same "LangGraph brain + OTel" design as the LiveKit backend — only the final assistant text is pushed to TTS, everything else is traced but not voiced.
 
 ## Interruption handling
 
@@ -153,7 +160,17 @@ Barge-in (the user interrupting the agent mid-utterance) is handled by every rea
 - **OpenAI** — server VAD with `interrupt_response: true`; on `input_audio_buffer.speech_started` the agent flushes the speaker buffer (`AudioOutput.clear()`).
 - **ADK** — Gemini emits an `interrupted` event; the agent flushes the speaker and (carefully) distinguishes a real interrupt from speaker bleed.
 - **LiveKit** — the framework truncates the assistant turn to what was actually spoken; the LangGraph brain is kept stateless so an interrupted, never-heard response never lingers in the context.
-- **Pipecat** — the Silero VAD drives barge-in (default turn-strategy behavior); tool calls use `cancel_on_interruption=True`; the turn tracker records `was_interrupted`, which the processor surfaces onto the LangSmith `turn` span, and the per-turn audio recorder captures exactly what was spoken before the cut.
+- **Pipecat** — the Silero VAD drives barge-in (default turn-strategy behavior); tool calls use `cancel_on_interruption=True`; the turn tracker records `was_interrupted`, which the processor surfaces onto the LangSmith `turn` span.
+
+### Recording what was *heard*, not what was generated
+
+A realtime agent generates more audio than it plays — barge-in truncates the bot mid-sentence. All three local backends record at the **playout boundary**, so the recording reflects what each party actually heard:
+
+- **OpenAI / ADK** — the agent side is recorded in `SpeakerStream`'s device callback (the bytes actually pulled to the speaker); audio that `clear()` drops on barge-in is never recorded.
+- **Pipecat** — a `RecordingLocalAudioTransport` taps played agent audio in `write_audio_frame` (reached only *after* the output clock queue truncates on barge-in) plus the user's mic, and writes one stereo WAV via the same `sdk_tracing.build_stereo_session_wav` the SDK backends use.
+- **LiveKit** — the framework's own media recorder already records the transmitted track post-truncation.
+
+In production (telephony, web push-to-talk) the same principle applies: record at the transport/media layer (e.g. dual-channel call recording, or your SFU's recording egress), never from the model/TTS output.
 
 ## Notes
 

@@ -3547,6 +3547,9 @@ openai = [
     { name = "openai" },
 ]
 pipecat = [
+    { name = "langchain-core" },
+    { name = "langchain-openai" },
+    { name = "langgraph" },
     { name = "pipecat-ai", extra = ["local", "openai", "tracing"] },
 ]
 
@@ -3556,9 +3559,12 @@ requires-dist = [
     { name = "google-genai", marker = "extra == 'adk'", specifier = ">=1.75" },
     { name = "httpx", specifier = ">=0.27" },
     { name = "langchain-core", marker = "extra == 'openai'", specifier = ">=0.3" },
+    { name = "langchain-core", marker = "extra == 'pipecat'", specifier = ">=0.3" },
     { name = "langchain-openai", marker = "extra == 'livekit'", specifier = ">=0.2" },
     { name = "langchain-openai", marker = "extra == 'openai'", specifier = ">=0.2" },
+    { name = "langchain-openai", marker = "extra == 'pipecat'", specifier = ">=0.2" },
     { name = "langgraph", marker = "extra == 'livekit'", specifier = ">=0.2" },
+    { name = "langgraph", marker = "extra == 'pipecat'", specifier = ">=0.2" },
     { name = "langsmith", specifier = ">=0.4" },
     { name = "langsmith", extras = ["google-adk"], marker = "extra == 'adk'", specifier = ">=0.4" },
     { name = "livekit-agents", extras = ["openai", "silero", "turn-detector", "langchain"], marker = "extra == 'livekit'", specifier = ">=1.0" },

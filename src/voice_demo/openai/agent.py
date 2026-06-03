@@ -181,6 +181,14 @@ async def run(
                     }
                 )
 
+                # Record the AGENT side at the speaker, not at receipt: this
+                # callback fires with the bytes actually played, so audio that
+                # barge-in flushes (clear()) is never recorded — the WAV
+                # reflects what was *heard*, not what was generated.
+                audio_out.set_played_callback(
+                    lambda data: session.record_agent(session.now(), data)
+                )
+
                 audio_in.start()
                 audio_out.start()
                 ui.log("[openai] connected. Talk into your mic — Ctrl-C to quit.")
@@ -208,7 +216,9 @@ async def run(
                         chunk = base64.b64decode(event.delta)
                         audio_out.write(chunk)
                         ui.set_state("speaking")
-                        session.record_agent(t_now, chunk)
+                        # NB: not recorded here — the speaker's played-callback
+                        # records what's actually played (see set_played_callback
+                        # above), so barge-in truncation is captured correctly.
                         continue
 
                     # Skip every other streaming partial (`*.delta`) — they're
