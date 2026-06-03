@@ -1,38 +1,61 @@
 # voice-demo
 
-Three voice-agent backends — **LiveKit STT/LLM/TTS**, **OpenAI Realtime v2v**, **Google ADK Live multi-modal** — sharing one console interface. Each backend is instrumented for LangSmith *the way its framework intends*.
+Four voice-agent backends — **OpenAI Realtime v2v**, **Google ADK Live multi-modal**, **LiveKit STT/LLM/TTS**, and **Pipecat STT/LLM/TTS** — each instrumented for LangSmith *the way its framework intends*.
 
-The point isn't the agents (they're toy weather assistants). The point is **how each one is traced**, side-by-side.
+The point isn't the agents (they're toy weather assistants). The point is **how each one is traced**, side-by-side — and how to structure a voice agent so the **frontend is swappable** from the agent itself.
 
 ## The tracing principle
 
-> Use **OTEL** when the framework runs in-process and emits its own spans. Use the **SDK** when you're consuming an event stream from a remote service.
+> Use the **SDK** when you're consuming an event stream from a remote service. Use **OTEL** when the framework runs the pipeline in-process and emits its own spans.
 
 | Backend | Tracing path | Why |
 |---|---|---|
+| OpenAI Realtime | SDK `RunTree`, one span per event | Realtime is a remote WebSocket: we observe an event stream (`input_audio_buffer.speech_started`, `response.created`, …) and build the trace ourselves. Every event becomes its own child span under the session root, carrying that event's full payload — so the trace mirrors *exactly what the server sent*. |
+| Google ADK Live | SDK `RunTree`, one span per event | Same situation: `Runner.run_live` is a remote stream. ADK's OTel instrumentation covers its non-live paths but **doesn't emit spans for `run_live`** — going OTel-only produces an empty root span. We span each event we observe, in the same RunTree shape as OpenAI. |
 | LiveKit | OTEL + processor that translates `lk.*` → `gen_ai.*` / `langsmith.*` | LiveKit runs the full STT/LLM/TTS/VAD pipeline in-process and emits OTel spans for every stage. Translating attribute names lets us inherit all of it — transcripts, per-stage latencies, model names, EOU probabilities, audio attachments — for free. |
-| OpenAI Realtime | SDK `RunTree`, one span per event | Realtime is a remote WebSocket: we observe an event stream (`input_audio_buffer.speech_started`, `response.created`, etc.) and build the trace ourselves. Every event becomes its own child span under the session root, carrying that event's full payload — so the trace mirrors *exactly what the server sent*. The SDK gives us multipart audio attachments and tool calls as proper child runs that nest under the event being handled. |
-| Google ADK Live | SDK `RunTree`, one span per event | Same situation: `Runner.run_live` is a remote stream over the wire. ADK's OTel instrumentation covers its non-live paths but **doesn't emit spans for `run_live`** — going OTel-only here produces an empty root span with no children. We span each event we observe (`input_transcription`, `function_call`, `turn_complete`, …) in the same RunTree shape as OpenAI. |
+| Pipecat | OTEL + processor that maps Pipecat spans → `gen_ai.*` / `langsmith.*` | Pipecat also runs in-process and emits OTel spans (`conversation` / `turn` / `stt` / `llm` / `tts`) behind `enable_tracing=True`. A span processor rewrites them into LangSmith's namespaces and attaches whole-conversation + per-turn audio. |
 
-The folder layout reflects this: LiveKit pairs its `agent.py` with a `processor.py` that enriches OTel spans before export. OpenAI and ADK each have just an `agent.py` (no processor) — the visible signal that they build the trace via the SDK directly.
+The folder layout reflects this: the two **OTEL** backends (LiveKit, Pipecat) each pair an `agent.py` with a `processor.py` that enriches OTel spans before export. The two **SDK** backends (OpenAI, ADK) have no processor — they build the trace via `voice_demo.sdk_tracing` directly.
+
+## The frontend is swappable from the agent
+
+Every backend is the same three things: an **agent brain** + **tracing** + a **transport** that moves audio in and out.
+
+- **LiveKit** and **Pipecat** get their transport (and console UX) from their *own frameworks* — LiveKit's console mode, Pipecat's `LocalAudioTransport`. The swappable part is the brain + the OTel processor.
+- **OpenAI** and **ADK** ship no console, so this repo provides one: `MicStream` / `SpeakerStream` (the "console transport") and a `ConsoleStatus` meter. But the agents don't depend on those classes — they depend on small protocols:
+
+  | Protocol | Where | Console implementation |
+  |---|---|---|
+  | `AudioInput` / `AudioOutput` | `voice_demo/audio.py` | `MicStream` / `SpeakerStream` (sounddevice, PCM16) |
+  | `StatusUI` | `voice_demo/console.py` | `ConsoleStatus` (or the no-op `NullUI`) |
+
+  The agent's `run()` takes those by injection; `cli.py` (the frontend) constructs the console versions and passes them in. **To drive the same OpenAI Realtime or ADK Live agent from a web app, a phone call, or a websocket bridge, implement those three interfaces and inject your own — without touching the agent's event loop, tracing, or tool logic.**
 
 ## Layout
 
 ```
 src/voice_demo/
-├── cli.py                 # `voice-demo --backend openai|adk|livekit`
-├── audio.py               # shared MicStream + SpeakerStream (sounddevice, PCM16)
-├── tracing.py             # shared LangSmith env wiring
+├── cli.py                 # the frontend: arg parsing + builds & injects the console transport/UI
+├── tracing.py             # shared LangSmith env wiring (SDK key / OTLP exporter vars)
+├── sdk_tracing.py         # shared RunTree-per-event machinery (OpenAI + ADK)
+├── audio.py               # AudioInput/AudioOutput protocols + MicStream/SpeakerStream (console transport)
+├── console.py             # StatusUI protocol + ConsoleStatus / NullUI
+├── weather.py             # shared Open-Meteo lookup
 ├── openai/
-│   ├── agent.py           # Realtime event loop + RunTree span per event
+│   ├── agent.py           # Realtime event loop → RunTree span per event
 │   ├── guardrail.py       # @traceable LangChain structured-output guardrail
 │   └── tools.py           # @traceable Open-Meteo weather lookup
 ├── adk/
-│   └── agent.py           # ADK Runner.run_live() driver + RunTree span per event
-└── livekit/
-    ├── agent.py           # AgentSession in console mode + tracer setup
-    ├── processor.py       # OTEL processor (lk.* translation, audio attachment)
-    └── _thread_id.py      # ContextVar for stable per-session thread_id
+│   └── agent.py           # ADK Runner.run_live() driver → RunTree span per event
+├── livekit/
+│   ├── agent.py           # AgentSession in console mode + tracer setup (LangGraph brain)
+│   ├── processor.py        # OTEL processor (lk.* → gen_ai.*, audio attachment, per-turn latency)
+│   └── _thread_id.py      # ContextVar for stable per-session thread_id
+└── pipecat/
+    ├── agent.py           # Pipeline (OpenAI STT/LLM/TTS, Silero VAD) + interruption handling
+    ├── processor.py        # OTEL processor (Pipecat spans → gen_ai.*, audio attachment)
+    ├── audio_recorder.py   # whole-conversation WAV FrameProcessor
+    └── turn_audio_recorder.py  # per-turn WAV FrameProcessor
 ```
 
 ## Setup
@@ -41,16 +64,16 @@ Python 3.11+, [uv](https://docs.astral.sh/uv/).
 
 ```bash
 cd voice-demo
-uv sync --all-extras            # or just one: --extra openai / --extra adk / --extra livekit
+uv sync --all-extras            # or just one: --extra openai / --extra adk / --extra livekit / --extra pipecat
 cp .env.example .env            # then fill in keys
 ```
 
 ### Required env
 
-- `LANGSMITH_API_KEY` — for tracing (optional but the whole point of the demo)
-- `OPENAI_API_KEY` — used by the OpenAI Realtime backend, the LangChain guardrail, *and* LiveKit's STT/LLM/TTS plugins
+- `LANGSMITH_API_KEY` — for tracing (optional, but the whole point of the demo)
+- `OPENAI_API_KEY` — used by the OpenAI Realtime backend, the LangChain guardrail, LiveKit's STT/LLM/TTS plugins, *and* the Pipecat backend's STT/LLM/TTS
 - `GOOGLE_API_KEY` — used by the ADK Live backend (Gemini)
-- `LIVEKIT_API_KEY` / `LIVEKIT_API_SECRET` / `LIVEKIT_URL` — dummy values fine, LiveKit's SDK only validates them at startup
+- `LIVEKIT_API_KEY` / `LIVEKIT_API_SECRET` / `LIVEKIT_URL` — dummy values fine; LiveKit's SDK only validates them at startup
 
 ## Run
 
@@ -58,20 +81,22 @@ cp .env.example .env            # then fill in keys
 uv run voice-demo --backend openai
 uv run voice-demo --backend adk
 uv run voice-demo --backend livekit
+uv run voice-demo --backend pipecat
 ```
 
-All three open the local mic + speaker. For LiveKit, press the spacebar to talk (LiveKit's console UX). For OpenAI and ADK, just start speaking — server VAD handles turn boundaries.
+All four open the local mic + speaker. For LiveKit, press the spacebar to talk (LiveKit's console UX). For OpenAI, ADK, and Pipecat, just start speaking — server/local VAD handles turn boundaries, and you can **barge in** to interrupt the agent mid-sentence.
 
 Try:
 - "What's the weather in San Francisco?"
 - "How's the weather in Tokyo and Rome right now?"
+- Interrupt the agent while it's talking — watch it stop and listen.
 - (OpenAI only) "What do you think about pineapple on pizza?" — guardrail trips, theatrical refusal.
 
 ## What you see in LangSmith
 
-Each backend lands in its own project: `voice-demo-openai`, `voice-demo-adk`, `voice-demo-livekit`.
+Each backend lands in its own project: `voice-demo-openai`, `voice-demo-adk`, `voice-demo-livekit`, `voice-demo-pipecat`.
 
-**OpenAI** — one conversation is one trace. Every WebSocket event becomes its own span under the session root, in arrival order, carrying that event's full (scrubbed) payload — in `inputs` if the user sent it toward the model (speech buffer, transcription), in `outputs` if the model/server sent it back (`response.*`, `error`):
+**OpenAI** — one conversation is one trace. Every WebSocket event becomes its own span under the session root, in arrival order, carrying that event's full (scrubbed) payload — in `inputs` if the user sent it toward the model, in `outputs` if the model/server sent it back:
 ```
 realtime_session                                 (root; one stereo conversation.wav: L=user, R=agent)
 │   metadata: event_count, duration_s
@@ -86,7 +111,7 @@ realtime_session                                 (root; one stereo conversation.
 ├── response.done                                (event — post-tool follow-up)
 └── error                                        (event, if the server sent one)
 ```
-Raw audio (`response.output_audio.delta`) is played but not spanned, and every other streaming partial (`*.delta`) is dropped — the terminal `*.done` events carry the complete payload. Work the agent does *while handling* an event (the guardrail check, tool execution) nests inside that event's span, exactly as a tool call would in any other traced app. The session root carries a single **stereo WAV** reconstructed from timestamped chunks (user on left, agent on right — interruption shows as overlap).
+Raw audio (`response.output_audio.delta`) is played but not spanned, and every other streaming partial (`*.delta`) is dropped — the terminal `*.done` events carry the complete payload. The session root carries a single **stereo WAV** reconstructed from timestamped chunks (user on left, agent on right — interruption shows as overlap).
 
 **ADK** — same shape as OpenAI (one conversation = one trace), spanning each `run_live` event:
 ```
@@ -95,13 +120,12 @@ realtime_session                    (root; one stereo conversation.wav: L=user, 
 ├── input_transcription            (event — user speech chunk)
 ├── output_transcription           (event — agent speech chunk)
 ├── function_call: get_weather     (event)
-│   └── execute_tool: get_weather  (real tool child; finalized when the matching
-│                                   function_response arrives)
+│   └── execute_tool: get_weather  (real tool child; finalized when the matching function_response arrives)
 ├── function_response: get_weather (event)
 ├── turn_complete                  (event)
 └── interrupted                    (event)
 ```
-Built explicitly with `RunTree` because ADK's OTel instrumentation doesn't cover `Runner.run_live`. Events whose *only* payload is an audio chunk are played but not spanned (there are too many), and every recorded event has its audio bytes scrubbed to a `<N bytes>` placeholder. Tool calls trace as proper child runs — the parents are simply the literal events instead of synthesized turns.
+Built explicitly with `RunTree` (the shared `voice_demo.sdk_tracing.EventSession`) because ADK's OTel instrumentation doesn't cover `Runner.run_live`. Events whose *only* payload is an audio chunk are played but not spanned; every recorded event has its audio bytes scrubbed to a `<N bytes>` placeholder.
 
 **LiveKit**:
 ```
@@ -113,7 +137,26 @@ job_entrypoint                      (root, attaches the full conversation WAV)
         └── tts_node                (TTS — voice + audio_duration)
 ```
 
+**Pipecat**:
+```
+conversation                        (root; attaches the whole-conversation WAV)
+└── turn × N                        (one exchange; turn.was_interrupted, per-turn user+ai WAVs attached)
+    ├── stt                         (audio → transcript)
+    ├── llm                         (messages → response, including lookup_weather tool calls)
+    └── tts                         (response text → audio)
+```
+
+## Interruption handling
+
+Barge-in (the user interrupting the agent mid-utterance) is handled by every realtime backend, and it's a first-class part of the demo:
+
+- **OpenAI** — server VAD with `interrupt_response: true`; on `input_audio_buffer.speech_started` the agent flushes the speaker buffer (`AudioOutput.clear()`).
+- **ADK** — Gemini emits an `interrupted` event; the agent flushes the speaker and (carefully) distinguishes a real interrupt from speaker bleed.
+- **LiveKit** — the framework truncates the assistant turn to what was actually spoken; the LangGraph brain is kept stateless so an interrupted, never-heard response never lingers in the context.
+- **Pipecat** — the Silero VAD drives barge-in (default turn-strategy behavior); tool calls use `cancel_on_interruption=True`; the turn tracker records `was_interrupted`, which the processor surfaces onto the LangSmith `turn` span, and the per-turn audio recorder captures exactly what was spoken before the cut.
+
 ## Notes
 
 - Each backend lazily imports its framework, so a missing optional dep for one backend doesn't break the others.
-- The OpenAI backend uses `gpt-realtime-2` by default; override with `REALTIME_MODEL`. The ADK backend uses `gemini-2.5-flash-native-audio-latest`; override with `ADK_LIVE_MODEL`.
+- Model overrides via env: OpenAI `REALTIME_MODEL` (default `gpt-realtime-2`); ADK `ADK_LIVE_MODEL` (default `gemini-2.5-flash-native-audio-latest`); Pipecat `PIPECAT_LLM_MODEL` / `PIPECAT_STT_MODEL` / `PIPECAT_TTS_VOICE`.
+- Event payloads are scrubbed before they reach LangSmith — raw audio `bytes` become a `<N bytes>` placeholder and long strings are truncated, so no audio blobs or oversized payloads are ever shipped.

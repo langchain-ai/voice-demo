@@ -7,3 +7,4 @@ dist/
 build/
 .DS_Store
 console-recordings/
+pipecat-recordings/

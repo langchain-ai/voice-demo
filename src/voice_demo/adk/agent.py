@@ -8,26 +8,30 @@ ADK emits standard `gen_ai.*` OTel spans for its non-live execution paths
 instrumented. An OTel-only setup produces a single empty root span and
 nothing inside it. So we treat ADK's `run_live` event stream the same way
 the OpenAI backend treats OpenAI Realtime's WebSocket events: observe each
-event, build the trace explicitly with RunTree.
+event, build the trace explicitly via the shared `voice_demo.sdk_tracing`
+`EventSession`.
 
 That refines the demo's "OTel vs SDK" rule:
 
-    OTel  → framework runs in-process and emits its own spans (LiveKit)
+    OTel  → framework runs in-process and emits its own spans (LiveKit, Pipecat)
     SDK   → framework hands us an event stream from a remote service
             (OpenAI Realtime, ADK Live)
 
+Frontend-agnostic
+-----------------
+Like the OpenAI backend, `run()` takes its audio frontend by injection
+(`AudioInput` / `AudioOutput` / optional `StatusUI`); the agent imports no
+console code. The CLI supplies the local-machine implementations.
+
 Trace shape
 -----------
-One conversation = one trace. Every `run_live` event becomes its own span
-under the session root, in arrival order, carrying that event's full (scrubbed)
+One conversation = one trace. Every `run_live` event becomes its own span under
+the session root, in arrival order, carrying that event's full (scrubbed)
 payload — in `inputs` if it's the user's transcribed speech heading to the
-model, in `outputs` if it's the model/server replying (agent transcription,
-tool calls, turn/interrupt signals) — so the trace mirrors what the service
-actually streamed us rather than a synthesized turn abstraction. Audio is
-embedded inside events as
-`inline_data` bytes; events whose *only* payload is an audio chunk are played
-but not spanned (there are too many), and every recorded event has its audio
-bytes scrubbed to a `<N bytes>` placeholder.
+model, in `outputs` if it's the model/server replying. Audio is embedded inside
+events as `inline_data` bytes; events whose *only* payload is an audio chunk are
+played but not spanned (there are too many), and every recorded event has its
+audio bytes scrubbed to a `<N bytes>` placeholder.
 
     realtime_session                       (root; conversation.wav stereo)
     │   metadata: thread_id, model, event_count, duration_s
@@ -49,43 +53,39 @@ are now the literal events instead of synthesized turns.
 from __future__ import annotations
 
 import asyncio
-import io
 import logging
-import math
 import os
 import sys
 import time
 import uuid
 import warnings
-import wave
-from collections.abc import Iterator
-from contextlib import contextmanager, nullcontext
-from dataclasses import dataclass, field
+from contextlib import nullcontext
 from datetime import datetime
 from typing import Any
 from zoneinfo import ZoneInfo
-
-# ADK prints noisy startup messages (an experimental-feature warning, plus a
-# log line about MCP not being installed) that smash into our status line.
-# Mute them before importing anything from google.adk.
-warnings.filterwarnings("ignore", category=UserWarning, module="google.adk")
-logging.getLogger("google_adk").setLevel(logging.ERROR)
-logging.getLogger("google.adk").setLevel(logging.ERROR)
 
 import numpy as np
 from langsmith import RunTree
 from langsmith.run_helpers import tracing_context
 from scipy import signal as scipy_signal
 
-from ..audio import MicStream, SpeakerStream
-from ..console import ConsoleStatus, frame_level
+from ..audio import AudioInput, AudioOutput
+from ..console import NullUI, StatusUI, frame_level
+from ..sdk_tracing import start_session
+
+# ADK prints noisy startup messages (an experimental-feature warning, plus a
+# log line about MCP not being installed) that smash into our status line. Mute
+# them here, at import time — well before `run()` lazily imports google.adk.
+warnings.filterwarnings("ignore", category=UserWarning, module="google.adk")
+logging.getLogger("google_adk").setLevel(logging.ERROR)
+logging.getLogger("google.adk").setLevel(logging.ERROR)
 
 
 APP_NAME = "voice-demo-adk"
 USER_ID = "console-user"
 
 SEND_SAMPLE_RATE = 16_000  # ADK Live wants 16 kHz in
-RECV_SAMPLE_RATE = 24_000  # …and 24 kHz out
+RECV_SAMPLE_RATE = 24_000  # …and 24 kHz out (and what our mic/speaker run at)
 
 MODEL = os.getenv("ADK_LIVE_MODEL", "gemini-2.5-flash-native-audio-latest")
 
@@ -132,123 +132,10 @@ _INSTRUCTIONS = (
 
 
 # ---------------------------------------------------------------------------
-# Run-tree state (same shape as the OpenAI backend, adapted to ADK events)
+# Tool-run lifecycle — ADK delivers a function_call event, then a separate
+# function_response event later, so we open the tool span on the call and
+# finalize it when the matching response arrives.
 # ---------------------------------------------------------------------------
-
-@dataclass
-class _Session:
-    run: RunTree
-    thread_id: str
-    project_name: str
-    t0: float
-    # Time-stamped audio chunks for the stereo conversation WAV.
-    user_chunks: list[tuple[float, bytes]] = field(default_factory=list)
-    agent_chunks: list[tuple[float, bytes]] = field(default_factory=list)
-    event_count: int = 0
-
-
-# ---------------------------------------------------------------------------
-# WAV helpers (lifted from openai/agent.py — same audio model)
-# ---------------------------------------------------------------------------
-
-def _layout_chunks_to_play_time(
-    chunks: list[tuple[float, bytes]], sample_rate: int
-) -> list[tuple[float, bytes]]:
-    """Rewrite receipt timestamps into natural-play timestamps.
-
-    Agent audio chunks arrive over WebSocket in bursts (server sends faster
-    than realtime). Naively placing them at receipt time makes them overlap
-    and overwrite each other. Place each chunk at max(prev_end, receipt_time)
-    so bursts play consecutively and real gaps between bursts are preserved.
-    """
-    out: list[tuple[float, bytes]] = []
-    cur_time = 0.0
-    for i, (t_recv, data) in enumerate(chunks):
-        if i == 0:
-            cur_time = t_recv
-        else:
-            cur_time = max(cur_time, t_recv)
-        out.append((cur_time, data))
-        cur_time += (len(data) // 2) / sample_rate
-    return out
-
-
-def _build_stereo_session_wav(session: _Session) -> bytes:
-    """Stereo WAV: channel 0 = user, channel 1 = agent.
-
-    User and agent are captured at different sample rates (24k mic, 24k agent
-    output) — both happen to be 24k so we use that as the file rate.
-    """
-    if not session.user_chunks and not session.agent_chunks:
-        return b""
-
-    sr = RECV_SAMPLE_RATE
-    user = _layout_chunks_to_play_time(session.user_chunks, sr)
-    agent = _layout_chunks_to_play_time(session.agent_chunks, sr)
-
-    def chunk_end(t: float, data: bytes) -> float:
-        return t + (len(data) // 2) / sr
-
-    user_end = max((chunk_end(t, d) for t, d in user), default=0.0)
-    agent_end = max((chunk_end(t, d) for t, d in agent), default=0.0)
-    total_samples = int(math.ceil(max(user_end, agent_end) * sr))
-
-    stereo = np.zeros((total_samples, 2), dtype=np.int16)
-
-    def write_channel(chunks: list[tuple[float, bytes]], channel: int) -> None:
-        for t, data in chunks:
-            offset = int(t * sr)
-            samples = np.frombuffer(data, dtype=np.int16)
-            end = min(offset + len(samples), total_samples)
-            n = end - offset
-            if n > 0:
-                stereo[offset:end, channel] = samples[:n]
-
-    write_channel(user, 0)
-    write_channel(agent, 1)
-
-    buf = io.BytesIO()
-    with wave.open(buf, "wb") as wf:
-        wf.setnchannels(2)
-        wf.setsampwidth(2)
-        wf.setframerate(sr)
-        wf.writeframes(stereo.tobytes())
-    return buf.getvalue()
-
-
-# ---------------------------------------------------------------------------
-# Session / tool lifecycle
-# ---------------------------------------------------------------------------
-
-def _start_session(thread_id: str, project_name: str) -> _Session:
-    run = RunTree(
-        name="realtime_session",
-        run_type="chain",
-        inputs={},
-        project_name=project_name,
-        tags=["voice-demo", "adk", "session"],
-        extra={"metadata": {"thread_id": thread_id, "model": MODEL}},
-    )
-    run.post()
-    return _Session(run=run, thread_id=thread_id, project_name=project_name, t0=time.monotonic())
-
-
-def _finalize_session(session: _Session) -> None:
-    extra: dict[str, Any] = session.run.extra or {}
-    metadata: dict[str, Any] = dict(extra.get("metadata") or {})
-    metadata["event_count"] = session.event_count
-    metadata["duration_s"] = round(time.monotonic() - session.t0, 2)
-    extra["metadata"] = metadata
-    session.run.extra = extra
-
-    stereo_wav = _build_stereo_session_wav(session)
-    if stereo_wav:
-        session.run.attachments = {
-            "conversation": ("audio/wav", stereo_wav),
-        }
-    session.run.end(outputs={})
-    session.run.patch()
-
 
 def _start_tool(parent: RunTree, name: str, args: dict) -> RunTree:
     run = parent.create_child(
@@ -267,43 +154,9 @@ def _finalize_tool(tool_run: RunTree, response: Any) -> None:
 
 
 # ---------------------------------------------------------------------------
-# Event spans — one span per received run_live event
+# Event classification — ADK events are structured objects, so the span label
+# and direction are derived from their payload (unlike OpenAI's flat `.type`).
 # ---------------------------------------------------------------------------
-
-_MAX_STR = 2000
-
-
-def _scrub(obj: Any) -> Any:
-    """Make an event payload safe + compact for a span.
-
-    Replaces raw `bytes` (audio chunks live in `inline_data.data`) with a
-    `<N bytes>` placeholder and truncates very long strings, so we never ship
-    audio blobs to LangSmith or blow up JSON serialization.
-    """
-    if isinstance(obj, bytes):
-        return f"<{len(obj)} bytes>"
-    if isinstance(obj, str):
-        if len(obj) > _MAX_STR:
-            return obj[:_MAX_STR] + f"... <+{len(obj) - _MAX_STR} chars>"
-        return obj
-    if isinstance(obj, dict):
-        return {k: _scrub(v) for k, v in obj.items()}
-    if isinstance(obj, (list, tuple)):
-        return [_scrub(v) for v in obj]
-    return obj
-
-
-def _dump_event(event: Any) -> dict[str, Any]:
-    """Best-effort conversion of a run_live event to a plain dict."""
-    if hasattr(event, "model_dump"):
-        try:
-            return event.model_dump()
-        except Exception:
-            pass
-    if isinstance(event, dict):
-        return event
-    return {"repr": repr(event)}
-
 
 def _event_label(event: Any) -> str:
     """A readable span name derived from the event's payload."""
@@ -376,33 +229,8 @@ def _is_inbound(event: Any) -> bool:
     return bool(in_tx and getattr(in_tx, "text", None))
 
 
-@contextmanager
-def _start_event(session: _Session, event: Any, t_now: float) -> Iterator[RunTree]:
-    """Open a child span for one received event; close it when the body exits.
-
-    The event payload lands in `inputs` for user→model events and `outputs` for
-    model→user events, so the trace reads in the natural direction of flow.
-    """
-    session.event_count += 1
-    payload = _scrub(_dump_event(event))
-    inbound = _is_inbound(event)
-    run = session.run.create_child(
-        name=_event_label(event),
-        run_type="chain",
-        inputs=payload if inbound else {},
-        tags=["event"],
-        extra={"metadata": {"received_at_s": round(t_now, 3)}},
-    )
-    run.post()
-    try:
-        yield run
-    finally:
-        run.end(outputs={} if inbound else payload)
-        run.patch()
-
-
 # ---------------------------------------------------------------------------
-# Audio resampling — our streams are 24k; ADK wants 16k on input.
+# Audio resampling — our mic/speaker run at 24k; ADK wants 16k on input.
 # ---------------------------------------------------------------------------
 
 def _resample_pcm16(data: bytes, src_rate: int, dst_rate: int) -> bytes:
@@ -420,10 +248,26 @@ def _resample_pcm16(data: bytes, src_rate: int, dst_rate: int) -> bytes:
 # Main run loop
 # ---------------------------------------------------------------------------
 
-async def run(project_name: str) -> None:
+async def run(
+    project_name: str,
+    *,
+    audio_in: AudioInput,
+    audio_out: AudioOutput,
+    ui: StatusUI | None = None,
+) -> None:
+    """Drive an ADK Live conversation over the given audio frontend.
+
+    Args:
+        project_name: LangSmith project the trace lands in.
+        audio_in: PCM16 mic source (24 kHz; resampled to 16 kHz for ADK).
+        audio_out: PCM16 speaker sink (24 kHz); `clear()` is called on barge-in.
+        ui: Optional status observer; defaults to a no-op for headless use.
+    """
     if not os.environ.get("GOOGLE_API_KEY"):
         print("GOOGLE_API_KEY is not set.", file=sys.stderr)
         sys.exit(1)
+
+    ui = ui or NullUI()
 
     # Lazy ADK imports — quiets startup until we know we'll use them.
     from google.adk.agents import LlmAgent
@@ -447,33 +291,32 @@ async def run(project_name: str) -> None:
     )
     queue = LiveRequestQueue()
 
-    mic = MicStream(sample_rate=RECV_SAMPLE_RATE)
-    speaker = SpeakerStream(sample_rate=RECV_SAMPLE_RATE)
-
     thread_id = str(uuid.uuid4())
-    status = ConsoleStatus()
-    status.log(f"[adk] thread_id={thread_id}")
-    status.log(f"[adk] connected with model={MODEL}.")
-    status.log("[adk] talk into your mic — Ctrl-C to quit.")
+    ui.log(f"[adk] thread_id={thread_id}")
+    ui.log(f"[adk] connected with model={MODEL}.")
+    ui.log("[adk] talk into your mic — Ctrl-C to quit.")
 
-    session = _start_session(thread_id, project_name)
+    session = start_session(
+        thread_id=thread_id,
+        project_name=project_name,
+        sample_rate=RECV_SAMPLE_RATE,
+        tags=["voice-demo", "adk", "session"],
+        metadata={"thread_id": thread_id, "model": MODEL},
+    )
     # Most recent agent audio chunk receipt — used to distinguish real user
     # interrupts from speaker bleed transcriptions (see input_transcription
     # handler below).
     last_agent_chunk_at = 0.0
     AGENT_QUIET_THRESHOLD_S = 0.5
 
-    def _now() -> float:
-        return time.monotonic() - session.t0
-
-    mic.start()
-    speaker.start()
-    status.set_state("listening")
+    audio_in.start()
+    audio_out.start()
+    ui.set_state("listening")
 
     stop = asyncio.Event()
 
     async def pump_mic() -> None:
-        async for frame in mic.frames():
+        async for frame in audio_in.frames():
             # Resample 24k → 16k for ADK Live.
             resampled = _resample_pcm16(frame, RECV_SAMPLE_RATE, SEND_SAMPLE_RATE)
             queue.send_realtime(
@@ -481,10 +324,10 @@ async def run(project_name: str) -> None:
                     data=resampled, mime_type=f"audio/pcm;rate={SEND_SAMPLE_RATE}"
                 )
             )
-            status.update_level(frame_level(frame))
+            ui.update_level(frame_level(frame))
             # Record into the session-level timeline for the conversation
             # stereo WAV.
-            session.user_chunks.append((_now(), frame))
+            session.record_user(session.now(), frame)
 
     async def pump_responses() -> None:
         nonlocal last_agent_chunk_at
@@ -519,18 +362,23 @@ async def run(project_name: str) -> None:
                 live_request_queue=queue,
                 run_config=run_config,
             ):
-                t_now = _now()
+                t_now = session.now()
 
                 # Audio-only events flood in; play them but don't span them.
                 ev_cm = (
                     nullcontext()
                     if _is_audio_only(event)
-                    else _start_event(session, event, t_now)
+                    else session.event_span(
+                        event,
+                        t_now,
+                        name=_event_label(event),
+                        inbound=_is_inbound(event),
+                    )
                 )
                 with ev_cm as ev:
                     if getattr(event, "interrupted", False):
-                        speaker.clear()
-                        status.set_state("hearing you")
+                        audio_out.clear()
+                        ui.set_state("hearing you")
 
                     content = getattr(event, "content", None)
                     if content and getattr(content, "parts", None):
@@ -539,9 +387,9 @@ async def run(project_name: str) -> None:
                             inline = getattr(part, "inline_data", None)
                             if inline and inline.data:
                                 chunk = inline.data
-                                speaker.write(chunk)
-                                status.set_state("speaking")
-                                session.agent_chunks.append((t_now, chunk))
+                                audio_out.write(chunk)
+                                ui.set_state("speaking")
+                                session.record_agent(t_now, chunk)
                                 last_agent_chunk_at = time.monotonic()
 
                             # Tool call (server invoked a function)
@@ -569,13 +417,13 @@ async def run(project_name: str) -> None:
                         # speaker bleed). If agent audio is still arriving
                         # within QUIET_THRESHOLD, this is almost certainly bleed.
                         quiet_for = time.monotonic() - last_agent_chunk_at
-                        speaker_has_audio = speaker.buffered_bytes() > 0
+                        speaker_has_audio = audio_out.buffered_bytes() > 0
                         if not speaker_has_audio:
-                            status.set_state("hearing you")
+                            ui.set_state("hearing you")
                         elif quiet_for > AGENT_QUIET_THRESHOLD_S:
                             # Drain phase — flush stale audio so the interrupt feels real.
-                            speaker.clear()
-                            status.set_state("hearing you")
+                            audio_out.clear()
+                            ui.set_state("hearing you")
                         # else: active generation, likely bleed — ignore.
 
                     out_tx = getattr(event, "output_transcription", None)
@@ -586,12 +434,12 @@ async def run(project_name: str) -> None:
                         user_text = "".join(user_buf).strip()
                         agent_text = "".join(agent_buf).strip()
                         if user_text:
-                            status.log(f"user:  {user_text}")
+                            ui.log(f"user:  {user_text}")
                         if agent_text:
-                            status.log(f"agent: {agent_text}")
+                            ui.log(f"agent: {agent_text}")
                         user_buf.clear()
                         agent_buf.clear()
-                        status.set_state("listening")
+                        ui.set_state("listening")
         except asyncio.CancelledError:
             pass
         finally:
@@ -617,8 +465,8 @@ async def run(project_name: str) -> None:
             for t in (mic_task, play_task):
                 t.cancel()
             await asyncio.gather(mic_task, play_task, return_exceptions=True)
-            mic.stop()
-            speaker.stop()
-            status.finish()
+            audio_in.stop()
+            audio_out.stop()
+            ui.finish()
 
-            _finalize_session(session)
+            session.finalize()

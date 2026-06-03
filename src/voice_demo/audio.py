@@ -1,13 +1,21 @@
-"""Local mic + speaker I/O for the voice-demo backends.
+"""Local mic + speaker I/O — the voice-demo "console transport".
 
-Two streams, both PCM16 mono, backed by `sounddevice` RawStreams. PortAudio
-runs the callbacks on its own thread; we shuttle bytes to/from the asyncio
-loop through queues so nothing blocks the event loop.
+`MicStream` and `SpeakerStream` are the local-machine implementation of the
+`AudioInput` / `AudioOutput` transport protocols defined here. They are the
+direct analog of the framework-owned transports the other backends use
+(LiveKit's console mode, Pipecat's `LocalAudioTransport`): they move PCM16 audio
+between the default mic/speaker and the agent, and nothing more.
 
-Both OpenAI Realtime and ADK Live want PCM16. Realtime is symmetric at 24 kHz;
-ADK Live wants 16 kHz in, 24 kHz out — so the streams take an explicit sample
-rate at construction. LiveKit owns its own audio path and does not use this
-module (its console mode wires the mic+speaker through the Agents SDK directly).
+Because the agents depend only on the *protocols*, a different frontend (a web
+app, a phone call, a websocket bridge) can drive the exact same OpenAI Realtime
+or ADK Live agent by supplying its own `AudioInput`/`AudioOutput` — without
+touching the agent's event loop, tracing, or tool logic.
+
+Both streams are PCM16 mono, backed by `sounddevice` RawStreams. PortAudio runs
+the callbacks on its own thread; we shuttle bytes to/from the asyncio loop
+through queues so nothing blocks the event loop. Realtime is symmetric at
+24 kHz; ADK Live wants 16 kHz in, 24 kHz out — so the streams take an explicit
+sample rate at construction.
 """
 
 from __future__ import annotations
@@ -15,12 +23,54 @@ from __future__ import annotations
 import asyncio
 import queue
 import threading
+from collections.abc import AsyncIterator
+from typing import Protocol, runtime_checkable
 
 import sounddevice as sd
 
 CHANNELS = 1
 DTYPE = "int16"
 CHUNK_MS = 20
+
+
+# ---------------------------------------------------------------------------
+# Transport protocols — the contract an agent needs from its audio frontend
+# ---------------------------------------------------------------------------
+
+@runtime_checkable
+class AudioInput(Protocol):
+    """A source of PCM16 mono audio frames (the agent's "ears")."""
+
+    sample_rate: int
+
+    def start(self) -> None: ...
+
+    def frames(self) -> AsyncIterator[bytes]:
+        """Async-iterate PCM16 mono frames until the input is stopped."""
+        ...
+
+    def stop(self) -> None: ...
+
+
+@runtime_checkable
+class AudioOutput(Protocol):
+    """A sink for PCM16 mono audio frames (the agent's "voice")."""
+
+    sample_rate: int
+
+    def start(self) -> None: ...
+
+    def write(self, data: bytes) -> None: ...
+
+    def buffered_bytes(self) -> int:
+        """Bytes still queued/unplayed — used to reason about barge-in timing."""
+        ...
+
+    def clear(self) -> None:
+        """Drop any buffered audio. Used on barge-in / interruption."""
+        ...
+
+    def stop(self) -> None: ...
 
 
 def _bytes_per_chunk(sample_rate: int) -> int:

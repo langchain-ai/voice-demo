@@ -1,8 +1,15 @@
-"""Shared terminal UI: single-line mic level meter + agent state.
+"""Terminal frontend UI: single-line mic level meter + agent state.
 
-Used by the OpenAI Realtime and Google ADK backends so their consoles look
-and behave identically. The LiveKit backend has its own console UI from the
-`livekit-agents` CLI and doesn't use this module.
+`ConsoleStatus` is the local-terminal implementation of the `StatusUI` protocol
+— the small observer interface the OpenAI Realtime and ADK Live agents use to
+surface what they're doing (state changes, transcript lines, mic level). It's
+purely a *frontend* concern: the agents depend on the protocol, not this class,
+so a non-terminal frontend can pass its own `StatusUI` (or the no-op `NullUI`)
+and render those events however it likes — or ignore them entirely.
+
+This is the piece the raw OpenAI/ADK SDKs don't ship and we built ourselves; the
+LiveKit and Pipecat backends get their equivalent console chatter from their own
+frameworks, which is why they don't use this module.
 """
 
 from __future__ import annotations
@@ -11,6 +18,45 @@ import array
 import math
 import sys
 import time
+from typing import Protocol, runtime_checkable
+
+
+@runtime_checkable
+class StatusUI(Protocol):
+    """What an agent reports to its frontend as a conversation progresses.
+
+    All methods are best-effort and side-effect-only — an agent never reads
+    anything back, so a frontend is free to implement these as no-ops, log
+    lines, structured events, or rich UI updates.
+    """
+
+    def set_state(self, state: str) -> None:
+        """The agent changed phase (e.g. listening, thinking, speaking)."""
+        ...
+
+    def update_level(self, level: float) -> None:
+        """Latest input level, 0..1 — for a mic meter."""
+        ...
+
+    def log(self, msg: str) -> None:
+        """A discrete line worth surfacing (a transcript, a notice)."""
+        ...
+
+    def finish(self) -> None:
+        """The session ended; flush/close any UI state."""
+        ...
+
+
+class NullUI:
+    """A `StatusUI` that does nothing — the default for headless frontends."""
+
+    def set_state(self, state: str) -> None: ...
+
+    def update_level(self, level: float) -> None: ...
+
+    def log(self, msg: str) -> None: ...
+
+    def finish(self) -> None: ...
 
 
 def frame_level(frame: bytes) -> float:

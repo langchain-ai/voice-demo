@@ -7,10 +7,10 @@ three sit next to each other in the LangSmith UI:
     voice-demo-adk
     voice-demo-livekit
 
-For the OTEL-based backends (LiveKit, ADK), this also wires the OTLP exporter
-env vars that LangSmith's `/otel/v1/traces` endpoint expects. For the SDK-based
-backend (OpenAI), only the LangSmith API key and project name matter — the SDK
-reads them directly.
+For the OTEL-based backends (LiveKit, ADK, Pipecat), this also wires the OTLP
+exporter env vars that LangSmith's `/otel/v1/traces` endpoint expects. For the
+SDK-based backend (OpenAI), only the LangSmith API key and project name matter —
+the SDK reads them directly.
 """
 
 from __future__ import annotations
@@ -19,7 +19,7 @@ import os
 import sys
 from typing import Literal
 
-Backend = Literal["openai", "adk", "livekit"]
+Backend = Literal["openai", "adk", "livekit", "pipecat"]
 
 DEFAULT_LANGSMITH_ENDPOINT = "https://api.smith.langchain.com"
 
@@ -51,7 +51,7 @@ def configure(backend: Backend, project: str | None = None) -> str:
     os.environ.setdefault("LANGSMITH_TRACING", "true")
     os.environ["LANGSMITH_PROJECT"] = project_name
 
-    if backend in ("livekit", "adk"):
+    if backend in ("livekit", "adk", "pipecat"):
         # OTLP exporter env vars — read by OTLPSpanExporter(). The
         # `Langsmith-Project` header lets the receiver assign spans to the
         # right project without us having to set it on every span.

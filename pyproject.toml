@@ -31,6 +31,11 @@ livekit = [
     "langgraph>=0.2",
     "langchain-openai>=0.2",
 ]
+pipecat = [
+    # openai: STT/LLM/TTS services · local: LocalAudioTransport (mic/speaker) ·
+    # tracing: the OTel/setup helpers. Silero VAD ships in pipecat core.
+    "pipecat-ai[openai,local,tracing]>=1.0",
+]
 
 [project.scripts]
 voice-demo = "voice_demo.cli:main"
