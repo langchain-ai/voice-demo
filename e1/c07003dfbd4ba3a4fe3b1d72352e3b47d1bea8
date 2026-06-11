@@ -1,0 +1,53 @@
+README.md
+  s_0706f91c82facb::t_3a4348c27dc952 3-273
+src/voice_demo/graph.py
+  s_0706f91c82facb::t_3a4348c27dc952 1-36
+src/voice_demo/livekit/agent.py
+  s_0706f91c82facb::t_3a4348c27dc952 3-186
+pyproject.toml
+  s_0706f91c82facb::t_3a4348c27dc952 28-30
+src/voice_demo/openai/agent.py
+  s_0706f91c82facb::t_3a4348c27dc952 59-276
+src/voice_demo/pipecat/langgraph_llm_service.py
+  s_0706f91c82facb::t_3a4348c27dc952 24-138
+src/voice_demo/pipecat/agent.py
+  s_0706f91c82facb::t_3a4348c27dc952 33-110
+src/voice_demo/livekit/processor.py
+  s_0706f91c82facb::t_3a4348c27dc952 17-609
+src/voice_demo/adk/agent.py
+  s_0706f91c82facb::t_3a4348c27dc952 46-265
+src/voice_demo/adk/utils.py
+  s_0706f91c82facb::t_3a4348c27dc952 1-17
+src/voice_demo/adk/events.py
+  s_0706f91c82facb::t_3a4348c27dc952 1-127
+src/voice_demo/pipecat/recording_transport.py
+  s_0706f91c82facb::t_3a4348c27dc952 34-73
+src/voice_demo/cli.py
+  s_0706f91c82facb::t_3a4348c27dc952 3-123
+src/voice_demo/prompts.py
+  s_0706f91c82facb::t_3a4348c27dc952 1-20
+src/voice_demo/audio.py
+  s_0706f91c82facb::t_3a4348c27dc952 29-51
+src/voice_demo/openai/utils.py
+  s_0706f91c82facb::t_3a4348c27dc952 1-31
+src/voice_demo/pipecat/processor.py
+  s_0706f91c82facb::t_3a4348c27dc952 7-420
+uv.lock
+  s_0706f91c82facb::t_3a4348c27dc952 3693-3718
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.6",
+  "base_commit_sha": "e1c07003dfbd4ba3a4fe3b1d72352e3b47d1bea8",
+  "prompts": {},
+  "sessions": {
+    "s_0706f91c82facb": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "957b617e-3f2b-436c-828d-cdbbef587b4e",
+        "model": "claude-opus-4-8"
+      },
+      "human_author": "open-swe[bot] <open-swe@users.noreply.github.com>"
+    }
+  }
+}
