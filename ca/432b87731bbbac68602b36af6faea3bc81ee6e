@@ -1,0 +1,57 @@
+src/voice_demo/graph.py
+  s_0706f91c82facb::t_3a4348c27dc952 1-36
+src/voice_demo/openai/agent.py
+  s_0706f91c82facb::t_3a4348c27dc952 59-276
+src/voice_demo/livekit/agent.py
+  s_0706f91c82facb::t_3a4348c27dc952 3-186
+src/voice_demo/prompts.py
+  s_0706f91c82facb::t_3a4348c27dc952 1-20
+src/voice_demo/audio.py
+  s_0706f91c82facb::t_3a4348c27dc952 29-51
+src/voice_demo/pipecat/langgraph_llm_service.py
+  s_0706f91c82facb::t_3a4348c27dc952 24-138
+src/voice_demo/adk/events.py
+  s_0706f91c82facb::t_3a4348c27dc952 1-127
+pyproject.toml
+  s_0706f91c82facb::t_3a4348c27dc952 28-30
+uv.lock
+  s_0706f91c82facb::t_3a4348c27dc952 3693-3718
+src/voice_demo/cli.py
+  s_0706f91c82facb::t_3a4348c27dc952 3-123
+README.md
+  s_0706f91c82facb::t_a178e61fa29c93 86
+  s_0706f91c82facb::t_6dbb26baa087b6 274
+  s_0706f91c82facb::t_8abe914fa62b4f 12-14
+  s_0706f91c82facb::t_3a4348c27dc952 3-11,15-85,87-113,116,122-273
+  s_0706f91c82facb::t_4e2f95155deecc 114-115,117-120
+src/voice_demo/openai/utils.py
+  s_0706f91c82facb::t_3a4348c27dc952 1-31
+src/voice_demo/pipecat/recording_transport.py
+  s_0706f91c82facb::t_3a4348c27dc952 34-73
+src/voice_demo/livekit/processor.py
+  s_0706f91c82facb::t_3a4348c27dc952 17-609
+src/voice_demo/adk/agent.py
+  s_0706f91c82facb::t_3a4348c27dc952 46-265
+src/voice_demo/adk/utils.py
+  s_0706f91c82facb::t_3a4348c27dc952 1-17
+src/voice_demo/pipecat/processor.py
+  s_0706f91c82facb::t_3a4348c27dc952 7-420
+src/voice_demo/pipecat/agent.py
+  s_0706f91c82facb::t_3a4348c27dc952 33-110
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.6",
+  "base_commit_sha": "ca432b87731bbbac68602b36af6faea3bc81ee6e",
+  "prompts": {},
+  "sessions": {
+    "s_0706f91c82facb": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "957b617e-3f2b-436c-828d-cdbbef587b4e",
+        "model": "claude-opus-4-8"
+      },
+      "human_author": null
+    }
+  }
+}
