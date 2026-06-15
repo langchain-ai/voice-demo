@@ -19,6 +19,11 @@ dependencies = [
 openai = [
     "openai>=1.50",
 ]
+openai-agents = [
+    # Same Realtime model as the `openai` extra, driven through the Agents SDK.
+    "openai-agents[realtime]>=0.2",
+    "openai>=1.50",
+]
 adk = [
     "google-adk>=2.0",
     "google-genai>=1.75",

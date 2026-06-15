@@ -1,9 +1,10 @@
 # voice-demo
 
-Six voice-agent backends — **OpenAI Realtime**, **Google ADK Live (Gemini)**,
-**LiveKit STT/LLM/TTS**, **Pipecat STT/LLM/TTS**, and **LiveKit
-speech-to-speech** (OpenAI Realtime / Gemini Live) — each instrumented for
-LangSmith *the way its framework intends*.
+Seven voice-agent backends — **OpenAI Realtime** (raw WebSocket), **OpenAI
+Realtime via the Agents SDK**, **Google ADK Live (Gemini)**, **LiveKit
+STT/LLM/TTS**, **Pipecat STT/LLM/TTS**, and **LiveKit speech-to-speech**
+(OpenAI Realtime / Gemini Live) — each instrumented for LangSmith *the way its
+framework intends*.
 
 The point isn't the agents (they're toy weather assistants). The point is
 **how each one is traced**, side-by-side — and how to structure a voice agent
@@ -22,6 +23,7 @@ mapping decisions, and the reasoning behind each choice.
 | Backend | Tracing path | Why |
 |---|---|---|
 | OpenAI Realtime | SDK `RunTree`, one span per event | Realtime is a remote WebSocket with no telemetry of its own: we observe the event stream (`input_audio_buffer.speech_started`, `response.done`, …) and build the trace ourselves. Every non-noise event becomes its own child span under the session root, carrying that event's full payload — the trace mirrors *exactly what the server sent*. |
+| OpenAI Realtime (Agents SDK) | SDK `RunTree`, one span per event | The same Realtime model, but driven through the OpenAI Agents SDK (`RealtimeAgent` / `RealtimeRunner`) — so the runner owns the turn/tool loop and we observe its **semantic** event stream (`agent_start`, `tool_start` / `tool_end`, `audio_interrupted`, `history_updated`) instead of the raw wire protocol. Same per-event span machinery; the low-level `raw_model_event` passthrough is dropped as noise. |
 | Google ADK Live | SDK `RunTree`, one span per event | Same situation: `Runner.run_live` is a remote stream, and ADK's OTel instrumentation **doesn't cover the live path** — OTel-only setups produce one empty root span. We span each event we observe, in the same shape as the OpenAI backend. |
 | LiveKit | OTel + a span processor (`lk.*` → `gen_ai.*` / `langsmith.*`) | LiveKit Agents runs the full STT/LLM/TTS/VAD pipeline in-process and emits OTel spans for every stage — but under a vendor prefix LangSmith doesn't read. The processor translates them, so transcripts, messages (with tool calls), token usage, per-stage latencies, and the call recording all land in LangSmith. |
 | Pipecat | OTel + a span processor (Pipecat spans → `gen_ai.*` / `langsmith.*`) | Pipecat also runs in-process and emits OTel spans (`conversation` / `turn` / `stt` / `llm` / `tts`) behind `enable_tracing=True`. Its processor does the same translation job and attaches the whole-conversation audio to the root. |
@@ -59,16 +61,20 @@ Every backend is the same three things: an **agent brain** + **tracing** + a
 src/voice_demo/
 ├── cli.py                 # the frontend: arg parsing + builds & injects the console transport/UI
 ├── tracing.py             # shared LangSmith env wiring (SDK vars / OTLP exporter vars)
-├── sdk_tracing.py         # shared RunTree-per-event machinery (OpenAI + ADK)
+├── sdk_tracing.py         # shared RunTree-per-event machinery (OpenAI, OpenAI Agents, ADK)
 ├── audio.py               # AudioInput/AudioOutput protocols + MicStream/SpeakerStream
 ├── console.py             # StatusUI protocol + ConsoleStatus / NullUI
 ├── prompts.py             # shared system prompt + greeting
 ├── weather.py             # shared Open-Meteo lookup (no API key)
 ├── graph.py               # LangGraph brain (weather agent ⇄ tools) — used by Pipecat
 ├── openai/
-│   ├── agent.py           # Realtime event loop → RunTree span per event
+│   ├── agent.py           # raw Realtime WebSocket event loop → RunTree span per event
 │   ├── utils.py           # event direction + tool dispatch
 │   └── tools.py           # traceable weather lookup
+├── openai_agents/
+│   ├── agent.py           # Agents SDK (RealtimeRunner) → RunTree span per semantic event
+│   ├── utils.py           # describe_event(): event → clean span payload + direction
+│   └── tools.py           # weather lookup as an Agents @function_tool
 ├── adk/
 │   ├── agent.py           # Runner.run_live() driver → RunTree span per event
 │   ├── events.py          # LiveEvent: readable view over ADK's all-optional-fields events
@@ -91,15 +97,16 @@ Python 3.11+, [uv](https://docs.astral.sh/uv/).
 
 ```bash
 cd voice-demo
-uv sync --all-extras            # or just one: --extra openai / --extra adk / --extra livekit / --extra pipecat
+uv sync --all-extras            # or just one: --extra openai / --extra openai-agents / --extra adk / --extra livekit / --extra pipecat
 cp .env.example .env            # then fill in keys
 ```
 
 ### Required env
 
 - `LANGSMITH_API_KEY` — for tracing (optional, but the whole point of the demo)
-- `OPENAI_API_KEY` — the OpenAI Realtime backend, LiveKit's STT/LLM/TTS
-  plugins and its Realtime variant, and Pipecat's STT/TTS + LangGraph brain
+- `OPENAI_API_KEY` — the two OpenAI Realtime backends (raw WebSocket + Agents
+  SDK), LiveKit's STT/LLM/TTS plugins and its Realtime variant, and Pipecat's
+  STT/TTS + LangGraph brain
 - `GOOGLE_API_KEY` — the ADK Live backend and LiveKit's Gemini Live variant
 - `LIVEKIT_API_KEY` / `LIVEKIT_API_SECRET` / `LIVEKIT_URL` — dummy values are
   fine; LiveKit's SDK only validates them at startup in console mode
@@ -107,7 +114,8 @@ cp .env.example .env            # then fill in keys
 ## Run
 
 ```bash
-uv run voice-demo --backend openai
+uv run voice-demo --backend openai           # OpenAI Realtime, raw WebSocket
+uv run voice-demo --backend openai-agents    # OpenAI Realtime, via the Agents SDK
 uv run voice-demo --backend adk
 uv run voice-demo --backend livekit
 uv run voice-demo --backend pipecat
@@ -116,8 +124,8 @@ uv run voice-demo --backend livekit --llm google-realtime   # LiveKit + Gemini L
 ```
 
 The speech-to-speech variants are the `livekit` backend with its LLM slot
-swapped via `--llm` (the only backends are `openai`, `adk`, `livekit`,
-`pipecat`); `--llm` applies to `livekit` only.
+swapped via `--llm` (the only backends are `openai`, `openai-agents`, `adk`,
+`livekit`, `pipecat`); `--llm` applies to `livekit` only.
 
 All of them open the local mic + speaker. For LiveKit (all three variants),
 press the spacebar to talk (LiveKit's console UX). For OpenAI, ADK, and
@@ -132,9 +140,10 @@ Try:
 
 ## What you see in LangSmith
 
-Each backend lands in its own project: `voice-demo-openai`, `voice-demo-adk`,
-`voice-demo-livekit`, `voice-demo-pipecat`,
-`voice-demo-livekit-openai-realtime`, `voice-demo-livekit-google-realtime`.
+Each backend lands in its own project: `voice-demo-openai`,
+`voice-demo-openai-agents`, `voice-demo-adk`, `voice-demo-livekit`,
+`voice-demo-pipecat`, `voice-demo-livekit-openai-realtime`,
+`voice-demo-livekit-google-realtime`.
 
 **OpenAI** — one conversation = one trace; every non-noise WebSocket event is
 its own span, in arrival order (payload in `inputs` for user→model events,
@@ -150,6 +159,22 @@ realtime_session                                 (root; stereo conversation.wav:
 ├── response.done
 │   └── lookup_weather × N                       (real tool runs — the client executes tools)
 └── response.done                                (the spoken follow-up)
+```
+
+**OpenAI (Agents SDK)** — the same Realtime model and the same per-event span
+machinery, but the runner owns the turn/tool loop, so the spans are the SDK's
+**semantic** events rather than the wire protocol. The model's `function_call`
+items never surface — the SDK runs the tool and reports `tool_start` /
+`tool_end`. The low-level `raw_model_event` passthrough is dropped as noise:
+
+```
+realtime_session                                 (root; stereo conversation.wav: L=user, R=agent)
+├── agent_start
+├── history_added            (user transcript → span inputs)
+├── tool_start               (lookup_weather — the SDK is about to run it)
+├── tool_end                 (weather result → span outputs)
+├── history_updated          (agent transcript)
+└── audio_interrupted        (barge-in)
 ```
 
 **ADK** — same shape (one span per `run_live` event), with span names derived

@@ -1,6 +1,6 @@
 """Entry point: `voice-demo --backend <name>`.
 
-Backends: openai · adk · livekit · pipecat. The LiveKit backend additionally
+Backends: openai · openai-agents · adk · livekit · pipecat. The LiveKit backend additionally
 takes `--llm {openai-realtime,google-realtime}` to swap its STT→LLM→TTS
 cascade for a speech-to-speech realtime model (OpenAI Realtime / Gemini Live).
 
@@ -65,7 +65,7 @@ def main() -> None:
     parser.add_argument(
         "--backend",
         required=True,
-        choices=("openai", "adk", "livekit", "pipecat"),
+        choices=("openai", "openai-agents", "adk", "livekit", "pipecat"),
         help="Which voice-agent stack to launch.",
     )
     parser.add_argument(
@@ -107,6 +107,14 @@ def main() -> None:
         from .openai.agent import run as run_openai
 
         _run_console_backend(run_openai, project)
+
+    elif args.backend == "openai-agents":
+        # Same OpenAI Realtime model as `openai`, but driven through the OpenAI
+        # Agents SDK (RealtimeAgent/RealtimeRunner) instead of the raw WebSocket
+        # event loop. Same console transport via the shared protocols.
+        from .openai_agents.agent import run as run_openai_agents
+
+        _run_console_backend(run_openai_agents, project)
 
     elif args.backend == "adk":
         from .adk.agent import run as run_adk
