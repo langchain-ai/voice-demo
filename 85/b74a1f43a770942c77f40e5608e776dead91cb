@@ -1,0 +1,54 @@
+README.md
+  s_e78bb4dbaeb646::t_550ee24e4229a3 117-118
+  s_e78bb4dbaeb646::t_cfce083d5e5d3d 71,74-77
+  s_e78bb4dbaeb646::t_34e7251ef2517b 100
+  s_e78bb4dbaeb646::t_57618eabedaecb 3-7
+  s_e78bb4dbaeb646::t_ff144ff03ce22a 143-146
+  s_e78bb4dbaeb646::t_26ee944c947019 164-179
+  s_e78bb4dbaeb646::t_d2e857020fe4e5 26
+  s_e78bb4dbaeb646::t_53d79e9e934523 107-109
+  s_e78bb4dbaeb646::t_e907d55571c08e 64
+  s_e78bb4dbaeb646::t_afac8ffee7524d 127-128
+src/voice_demo/openai_agents/tools.py
+  s_e78bb4dbaeb646::t_7d649962e6fb1b 1-32
+src/voice_demo/openai_agents/agent.py
+  s_e78bb4dbaeb646::t_437b5fed8f28bd 155-243
+  s_e78bb4dbaeb646::t_35db39f1273407 1-56,58-86,88-154
+  s_e78bb4dbaeb646::t_a3c0239d87ae73 57
+  s_e78bb4dbaeb646::t_094c6e453198dd 87
+pyproject.toml
+  s_e78bb4dbaeb646::t_aaa0990bb84410 22-26
+src/voice_demo/openai_agents/__init__.py
+  s_e78bb4dbaeb646::t_69537ea69e8981 1-8
+src/voice_demo/cli.py
+  s_e78bb4dbaeb646::t_e0a970f320eabb 3
+  s_e78bb4dbaeb646::t_30d8be08293b56 68
+  s_e78bb4dbaeb646::t_09fb9ba0658ae2 111-118
+src/voice_demo/openai_agents/utils.py
+  s_dc9143330d79b2::t_8d712ab4d10b3a 5-11,16,19-21,23,29-91,120-123,125-128
+  s_e78bb4dbaeb646::t_a103640d06d0c0 1-4,12-15,17-18,22,24-28,92-119,124,129-169
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.7",
+  "base_commit_sha": "85b74a1f43a770942c77f40e5608e776dead91cb",
+  "prompts": {},
+  "sessions": {
+    "s_dc9143330d79b2": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "f1918beb-0386-4c0d-a6f9-df4aac670b2b",
+        "model": "claude-opus-4-8"
+      },
+      "human_author": "open-swe[bot] <open-swe@users.noreply.github.com>"
+    },
+    "s_e78bb4dbaeb646": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "cd75924b-29c3-4643-92c6-34e560fbdd40",
+        "model": "claude-opus-4-8"
+      },
+      "human_author": "open-swe[bot] <open-swe@users.noreply.github.com>"
+    }
+  }
+}
