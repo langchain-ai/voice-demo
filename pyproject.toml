@@ -42,7 +42,7 @@ pipecat = [
     "pipecat-ai[openai,local,tracing]>=1.0",
     # The LLM "brain" is an in-process LangChain agent (create_agent) over LangGraph.
     "langgraph>=0.2",
-    "langchain>=1.0",
+    "langchain>=1.3.9",
     "langchain-openai>=0.2",
     "langchain-core>=0.3",
 ]
