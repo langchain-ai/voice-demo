@@ -14,7 +14,11 @@ view we overlay a few *promoted* fields per event type (role/text, tool args,
 from __future__ import annotations
 
 import dataclasses
-from typing import Any
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:
+    from ..console import StatusUI
+    from ..sdk_tracing import EventSession
 
 _MAX_DEPTH = 4  # how deep we recurse into nested SDK objects before bailing
 _MAX_ITEMS = 50  # cap on collection width so one event never balloons a span
@@ -114,6 +118,47 @@ def _item_text(item: Any) -> tuple[str | None, str | None]:
     return role, (" ".join(parts) or None)
 
 
+def raw_input_transcript(event: Any) -> tuple[str | None, str] | None:
+    """User transcript from a `raw_model_event` wrapping an input-audio
+    transcription completion.
+
+    This is the wire-level source the raw OpenAI backend reads directly. The
+    Agents SDK passes it through as a `raw_model_event`, and it sometimes carries
+    a user utterance the semantic `history` never surfaces (notably a barge-in).
+    Returns `(item_id, transcript)` for a non-empty transcript, else None.
+    """
+    data = getattr(event, "data", None)
+    if getattr(data, "type", None) != "input_audio_transcription_completed":
+        return None
+    transcript = (getattr(data, "transcript", None) or "").strip()
+    if not transcript:
+        return None
+    return getattr(data, "item_id", None), transcript
+
+
+def history_item(event: Any) -> tuple[str | None, str | None, str | None]:
+    """`(item_id, role, text)` for a `history_added` event's single item."""
+    item = getattr(event, "item", None)
+    role, text = _item_text(item)
+    return getattr(item, "item_id", None), role, text
+
+
+def history_messages(event: Any) -> list[tuple[str | None, str | None, str | None]]:
+    """`(item_id, role, text)` for every item in a `history_updated` snapshot.
+
+    The realtime session delivers the full conversation `history` on every
+    update, so this is the authoritative source for the transcript: walking it
+    (rather than the streamed partials) reliably yields *all* user and assistant
+    messages, each with its stable `item_id` so callers can collapse partials by
+    keeping the latest text per id.
+    """
+    out: list[tuple[str | None, str | None, str | None]] = []
+    for item in getattr(event, "history", None) or []:
+        role, text = _item_text(item)
+        out.append((getattr(item, "item_id", None), role, text))
+    return out
+
+
 def describe_event(event: Any) -> tuple[str, dict[str, Any], bool]:
     """Map a session event to `(name, span_payload, inbound)`.
 
@@ -167,3 +212,116 @@ def describe_event(event: Any) -> tuple[str, dict[str, Any], bool]:
         payload["error"] = _stringify(getattr(event, "error", None))
 
     return etype, payload, inbound
+
+
+class HistoryTracker:
+    """Reconstructs the conversation from history snapshots and emits its spans.
+
+    The Agents SDK delivers the full conversation `history` on every history
+    event — the streamed events alone mis-deliver user messages and emit the
+    assistant transcript as growing partials. This tracker folds those snapshots
+    into a map keyed by stable `item_id` (latest non-empty text per id wins, so
+    partials collapse and every user/assistant message is captured) and emits one
+    span per message once it finalizes: a curated `user_message` span or an
+    assistant `model` (`llm`) span, grouped into per-user-turn `turn` spans. It
+    also owns the per-turn first-audio latency timer (armed when a new user turn
+    opens, recorded on the first agent audio chunk).
+
+    All trace writes go through the injected `EventSession`; console lines go
+    through the injected `StatusUI`. The tracker does no I/O of its own.
+    """
+
+    def __init__(self, trace: EventSession, ui: StatusUI) -> None:
+        self._trace = trace
+        self._ui = ui
+        # item_id → {"role", "text"}, in arrival order (dict preserves insertion).
+        self._items: dict[str, dict[str, Any]] = {}
+        self._emitted: set[str] = set()  # item_ids already turned into spans
+        self._logged: set[tuple[str, str]] = set()  # (role, text) already printed
+        # Per-turn latency: when the current user turn opened; None = not armed.
+        self._latency_since: float | None = None
+
+    def observe(self, seq: list[tuple], received_at: float) -> None:
+        """Fold `(item_id, role, text)` tuples into the map.
+
+        A brand-new user item begins a turn: the previous turn's messages are
+        flushed first (so they stay grouped under it), then a new `turn` span
+        opens and the latency timer is armed.
+        """
+        for iid, role, text in seq:
+            if not iid:
+                continue
+            if iid not in self._items and role == "user":
+                self.flush(hold_last=False)
+                self._trace.start_turn()
+                self._latency_since = received_at
+            cur = self._items.get(iid)
+            if cur is None:
+                self._items[iid] = {"role": role, "text": text}
+            else:
+                if role:
+                    cur["role"] = role
+                if text:  # latest non-empty text wins → collapses partials
+                    cur["text"] = text
+            # Print to the console promptly as text arrives (deduped), so the
+            # agent's reply shows immediately — independent of when its span is
+            # emitted (which waits for the item to be superseded).
+            if role in ("user", "assistant") and text:
+                self._log_line(role, text)
+
+    def flush(self, hold_last: bool) -> None:
+        """Emit not-yet-emitted items in order, optionally holding back the last
+        (still-streaming) item until it is superseded or the session ends."""
+        ids = list(self._items)
+        cutoff = len(ids) - 1 if hold_last else len(ids)
+        for iid in ids[: max(0, cutoff)]:
+            if iid not in self._emitted:
+                self._record_item(iid)
+
+    def record_first_audio(self, received_at: float) -> None:
+        """Record `latency_to_first_audio_ms` on the open turn, once per turn."""
+        if self._latency_since is not None:
+            self._trace.add_turn_metadata(
+                latency_to_first_audio_ms=round((received_at - self._latency_since) * 1000)
+            )
+            self._latency_since = None
+
+    def _log_line(self, role: str | None, text: str | None) -> None:
+        """Print one transcript line to the console once.
+
+        Console-only and deduped (history repeats/streams text). Kept separate
+        from the trace transcript (`add_message`) so the console can print
+        promptly as text arrives, while span emission still waits for an item to
+        finalize — otherwise the agent's reply wouldn't print until the next user
+        turn supersedes it.
+        """
+        if not role or not text or (role, text) in self._logged:
+            return
+        self._logged.add((role, text))
+        self._ui.log(f"{'user: ' if role == 'user' else 'agent:'} {text}")
+
+    def _record_item(self, iid: str) -> None:
+        """Emit one message span for a finalized history item (once)."""
+        role = self._items[iid]["role"]
+        text = (self._items[iid]["text"] or "").strip()
+        if role not in ("user", "assistant"):
+            self._emitted.add(iid)  # tool/system items are never messages
+            return
+        if not text:
+            return  # message text not in yet (may arrive late, e.g. a barge-in
+            # transcript recovered from raw_model_event) — leave pending
+        self._emitted.add(iid)
+        self._log_line(role, text)  # console (no-op if already printed promptly)
+        self._trace.add_message(role, text)  # the trace transcript
+        if role == "user":
+            with self._trace.event_span(
+                {"item_id": iid, "role": "user", "content": text},
+                self._trace.now(),
+                name="user_message",
+                inbound=True,
+                inputs={"role": "user", "content": text},
+            ):
+                pass
+        else:
+            # Assistant message → a point-in-time `model` `llm` span under the turn.
+            self._trace.record_llm(outputs={"role": "assistant", "content": text})

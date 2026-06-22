@@ -25,24 +25,37 @@ the local-machine versions; the agent imports no console code.
 ## Trace shape — one conversation = one trace
 
 Same machinery as the raw backend (`voice_demo.sdk_tracing.EventSession`): one
-root `realtime_session` span with the stereo conversation WAV attached, one child
-span per event. The *difference is what the events are* — the SDK's semantic
-turn/tool/history events rather than the wire protocol's buffer/response events.
-Raw audio (`audio`) is played but not spanned; low-level `raw_model_event`s (the
-SDK's passthrough of the underlying protocol) are dropped as noise — the semantic
-events above already carry the meaning.
+root `realtime_session` span (full transcript in `outputs`, stereo WAV attached)
+grouped into `turn`s.
 
-    realtime_session                                   (root)
+The conversation itself is reconstructed from the **full `history` snapshot** the
+session delivers on every `history_updated` — not from the streamed events, which
+mis-deliver user messages and emit the assistant transcript as growing partials.
+We fold the snapshot into an item map keyed by stable `item_id` (latest text per
+id wins → partials collapse, every user/assistant message is captured), and emit
+one span per message once it's finalized: a curated `user_message` span or an
+assistant `model` (`llm`) span. A new user item opens a `turn`. (Token usage
+isn't available — the SDK has no per-response usage events yet.)
+
+Everything else stays on the live event stream: `tool_start`/`tool_end` (the
+SDK-run tool, a `tool` span), `audio_end`/`agent_*` (the timeline that drives the
+audio-player sync), `latency_to_first_audio_ms`, and `was_interrupted` on
+barge-in. Raw audio (`audio`) isn't spanned; the SDK's `raw_model_event`
+passthrough isn't spanned either, but we mine it for the wire-level input
+transcript that `history` can omit on a barge-in, merging it into the item map.
+
+    realtime_session                                   (root; transcript in outputs)
     │  attachments: conversation.wav                  (stereo: L=user, R=agent)
-    │  metadata: event_count, duration_s
     │
-    ├── agent_start                                   (event)
-    ├── history_added            (user transcript)    (event)
-    ├── tool_start               (lookup_weather)     (event)
-    ├── tool_end                 (weather result)     (event)
-    ├── history_updated          (agent transcript)   (event)
-    ├── audio_interrupted        (barge-in)           (event)
-    └── error                                         (event, if one is raised)
+    ├── turn                                           (metadata: latency_ms, was_interrupted)
+    │   ├── user_message         (user message)       (curated user msg, from history)
+    │   ├── tool_start           (lookup_weather)     (event)
+    │   ├── tool_end             (weather result)     (tool — args in / output out)
+    │   ├── model                (assistant message)  (llm — history; inputs=context, partials collapsed)
+    │   └── audio_interrupted    (barge-in)           (event)
+    └── turn                                           (next user utterance …)
+
+`agent_start`/`agent_end` are dropped (bookkeeping markers with no I/O).
 """
 
 from __future__ import annotations
@@ -51,6 +64,7 @@ import asyncio
 import os
 import sys
 import uuid
+from typing import Any
 
 from agents import set_tracing_disabled
 from agents.realtime import RealtimeAgent, RealtimeRunner
@@ -60,7 +74,13 @@ from ..audio import AudioInput, AudioOutput
 from ..console import NullUI, StatusUI, frame_level
 from ..sdk_tracing import start_session
 from .tools import lookup_weather
-from .utils import describe_event
+from .utils import (
+    HistoryTracker,
+    describe_event,
+    history_item,
+    history_messages,
+    raw_input_transcript,
+)
 
 SYSTEM_PROMPT = """You are a friendly voice assistant who can look up the
 weather for any city. Keep replies short, conversational, and free of
@@ -133,14 +153,13 @@ async def run(
         metadata={"thread_id": thread_id, "model": DEFAULT_MODEL},
     )
     mic_task: asyncio.Task | None = None
-    logged: set[tuple[str, str]] = set()
 
-    def log_transcript(role: str | None, text: str | None) -> None:
-        """Surface a user/agent transcript line once (history events repeat)."""
-        if not role or not text or (role, text) in logged:
-            return
-        logged.add((role, text))
-        ui.log(f"{'user: ' if role == 'user' else 'agent:'} {text}")
+    # Authoritative conversation state, reconstructed from the full `history`
+    # snapshot the session delivers on every history event (the streamed events
+    # alone mis-deliver user messages and partials). The tracker folds snapshots
+    # into a per-item map, emits one span per finalized message, groups them into
+    # turns, and owns the per-turn first-audio latency timer.
+    tracker = HistoryTracker(session_trace, ui)
 
     agent = RealtimeAgent(
         name="weather-assistant",
@@ -190,23 +209,63 @@ async def run(
                     # Raw agent audio: many chunks per turn. Play it, don't span
                     # it. The speaker's played-callback records what's heard.
                     if event_type == "audio":
+                        tracker.record_first_audio(received_at)
                         audio_out.write(event.audio.data)
                         ui.set_state("speaking")
                         continue
 
-                    # The SDK's passthrough of the underlying wire protocol —
-                    # noisy and redundant with the semantic events below. Drop it.
+                    # The SDK's passthrough of the underlying wire protocol — noisy,
+                    # not spanned. But it carries the wire-level user transcript that
+                    # the semantic `history` sometimes omits (notably a barge-in), so
+                    # mine that one event and merge it into the item map.
                     if event_type == "raw_model_event":
+                        rec = raw_input_transcript(event)
+                        if rec:
+                            item_id, transcript = rec
+                            tracker.observe([(item_id, "user", transcript)], received_at)
+                            tracker.flush(hold_last=True)
                         continue
 
-                    name, payload, inbound = describe_event(event)
-                    with session_trace.event_span(
-                        payload, received_at, name=name, inbound=inbound
-                    ):
-                        if event_type == "agent_start":
-                            ui.set_state("listening")
+                    # History events feed the authoritative item map; they're not
+                    # spanned directly (they stream partials). Messages are emitted
+                    # as user/`model` spans from the map once an item is finalized.
+                    if event_type == "history_added":
+                        tracker.observe([history_item(event)], received_at)
+                        tracker.flush(hold_last=True)
+                        continue
+                    if event_type == "history_updated":
+                        tracker.observe(history_messages(event), received_at)
+                        tracker.flush(hold_last=True)
+                        continue
 
-                        elif event_type == "audio_interrupted":
+                    # agent_start/agent_end are bookkeeping markers (the agent
+                    # re-activates on each model pass in the tool loop); they carry
+                    # no I/O and just clutter the trace. Keep agent_start's UI cue
+                    # but don't span them.
+                    if event_type == "agent_start":
+                        ui.set_state("listening")
+                        continue
+                    if event_type == "agent_end":
+                        continue
+
+                    # Remaining real-time events: the live timeline (audio-player
+                    # sync), tool runs, latency/barge-in. The full describe_event
+                    # payload is preserved under metadata.raw_event by event_span.
+                    name, payload, inbound = describe_event(event)
+                    span_kwargs: dict[str, Any] = {"inbound": inbound}
+                    if event_type == "tool_end":
+                        # The SDK ran the tool; record it as a `tool` run (args in,
+                        # result out) — a sibling of the assistant `model` span.
+                        span_kwargs["run_type"] = "tool"
+                        span_kwargs["inputs"] = {"arguments": payload.get("arguments")}
+                        span_kwargs["outputs"] = {"output": payload.get("output")}
+                    elif event_type == "audio_interrupted":
+                        session_trace.add_turn_metadata(was_interrupted=True)
+
+                    with session_trace.event_span(
+                        payload, received_at, name=name, **span_kwargs
+                    ):
+                        if event_type == "audio_interrupted":
                             # Barge-in: flush whatever the agent was still saying.
                             audio_out.clear()
                             ui.set_state("hearing you")
@@ -219,12 +278,6 @@ async def run(
 
                         elif event_type == "tool_end":
                             ui.set_state("thinking")
-
-                        elif event_type == "history_added":
-                            log_transcript(payload.get("role"), payload.get("text"))
-
-                        elif event_type == "history_updated":
-                            log_transcript(payload.get("last_role"), payload.get("last_text"))
 
                         elif event_type == "error":
                             ui.log(f"[openai-agents] server error: {payload.get('error')}")
@@ -239,5 +292,8 @@ async def run(
                 mic_task.cancel()
             audio_in.stop()
             audio_out.stop()
+            # Emit any messages still pending when the session ended (e.g. Ctrl-C
+            # mid-utterance) before the turn/root spans close.
+            tracker.flush(hold_last=False)
             session_trace.finalize()
             ui.finish()
