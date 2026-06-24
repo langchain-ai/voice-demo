@@ -101,6 +101,18 @@ uv sync --all-extras            # or just one: --extra openai / --extra openai-a
 cp .env.example .env            # then fill in keys
 ```
 
+The **`pipecat` extra** pulls in `pyaudio`, which compiles against the system
+PortAudio library — install it first or the build fails with
+`fatal error: 'portaudio.h' file not found`:
+
+```bash
+brew install portaudio          # macOS
+sudo apt install portaudio19-dev  # Debian/Ubuntu
+```
+
+The other backends use `sounddevice` (PortAudio ships in its wheel), so this
+step is only needed for `--extra pipecat` / `--all-extras`.
+
 ### Required env
 
 - `LANGSMITH_API_KEY` — for tracing (optional, but the whole point of the demo)
