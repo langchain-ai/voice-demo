@@ -22,27 +22,13 @@ Identical to the raw backend: `run()` takes its audio frontend by injection (an
 `AudioInput`, an `AudioOutput`, an optional `StatusUI`). The console CLI supplies
 the local-machine versions; the agent imports no console code.
 
-## Trace shape — one conversation = one trace
+## Tracing is separate
 
-Same machinery as the raw backend (`voice_demo.sdk_tracing.EventSession`): one
-root `realtime_session` span with the stereo conversation WAV attached, one child
-span per event. The *difference is what the events are* — the SDK's semantic
-turn/tool/history events rather than the wire protocol's buffer/response events.
-Raw audio (`audio`) is played but not spanned; low-level `raw_model_event`s (the
-SDK's passthrough of the underlying protocol) are dropped as noise — the semantic
-events above already carry the meaning.
-
-    realtime_session                                   (root)
-    │  attachments: conversation.wav                  (stereo: L=user, R=agent)
-    │  metadata: event_count, duration_s
-    │
-    ├── agent_start                                   (event)
-    ├── history_added            (user transcript)    (event)
-    ├── tool_start               (lookup_weather)     (event)
-    ├── tool_end                 (weather result)     (event)
-    ├── history_updated          (agent transcript)   (event)
-    ├── audio_interrupted        (barge-in)           (event)
-    └── error                                         (event, if one is raised)
+This module is the *application*: it wires the mic/speaker to the SDK session
+and reacts to events with UI state. All LangSmith tracing lives in `tracing.py`
+(`HistoryTracker`). The loop wraps each event in `tracker.track_event(event)`
+and its body holds only application side-effects — no span, turn, transcript, or
+metric code. See `tracing.py` for the resulting trace shape.
 """
 
 from __future__ import annotations
@@ -54,13 +40,12 @@ import uuid
 
 from agents import set_tracing_disabled
 from agents.realtime import RealtimeAgent, RealtimeRunner
-from langsmith.run_helpers import tracing_context
 
 from ..audio import AudioInput, AudioOutput
 from ..console import NullUI, StatusUI, frame_level
 from ..sdk_tracing import start_session
 from .tools import lookup_weather
-from .utils import describe_event
+from .tracing import HistoryTracker
 
 SYSTEM_PROMPT = """You are a friendly voice assistant who can look up the
 weather for any city. Keep replies short, conversational, and free of
@@ -133,14 +118,13 @@ async def run(
         metadata={"thread_id": thread_id, "model": DEFAULT_MODEL},
     )
     mic_task: asyncio.Task | None = None
-    logged: set[tuple[str, str]] = set()
 
-    def log_transcript(role: str | None, text: str | None) -> None:
-        """Surface a user/agent transcript line once (history events repeat)."""
-        if not role or not text or (role, text) in logged:
-            return
-        logged.add((role, text))
-        ui.log(f"{'user: ' if role == 'user' else 'agent:'} {text}")
+    # Authoritative conversation state, reconstructed from the full `history`
+    # snapshot the session delivers on every history event (the streamed events
+    # alone mis-deliver user messages and partials). The tracker folds snapshots
+    # into a per-item map, emits one span per finalized message, groups them into
+    # turns, and owns the per-turn first-audio latency timer.
+    tracker = HistoryTracker(session_trace, ui)
 
     agent = RealtimeAgent(
         name="weather-assistant",
@@ -152,11 +136,7 @@ async def run(
         config={"model_settings": _model_settings()},
     )
 
-    with tracing_context(
-        metadata={"thread_id": thread_id},
-        tags=["voice-demo", "openai-agents"],
-        project_name=project_name,
-    ):
+    with tracker.trace_context(tags=["voice-demo", "openai-agents"]):
         try:
             session = await runner.run()
             async with session:
@@ -170,7 +150,9 @@ async def run(
 
                 audio_in.start()
                 audio_out.start()
-                ui.log("[openai-agents] connected. Talk into your mic — Ctrl-C to quit.")
+                ui.log(
+                    "[openai-agents] connected. Talk into your mic — Ctrl-C to quit."
+                )
                 ui.set_state("listening")
 
                 async def pump_mic() -> None:
@@ -183,27 +165,20 @@ async def run(
 
                 mic_task = asyncio.create_task(pump_mic())
 
+                # Application event loop. Every event is wrapped in
+                # `tracker.track_event(...)`, which owns all tracing (spans,
+                # turns, transcript, latency); the body below is pure application
+                # behavior — play audio and set UI state.
                 async for event in session:
-                    event_type = event.type
-                    received_at = session_trace.now()
+                    with tracker.track_event(event):
+                        event_type = event.type
 
-                    # Raw agent audio: many chunks per turn. Play it, don't span
-                    # it. The speaker's played-callback records what's heard.
-                    if event_type == "audio":
-                        audio_out.write(event.audio.data)
-                        ui.set_state("speaking")
-                        continue
+                        if event_type == "audio":
+                            # Many chunks per turn — play each as it arrives.
+                            audio_out.write(event.audio.data)
+                            ui.set_state("speaking")
 
-                    # The SDK's passthrough of the underlying wire protocol —
-                    # noisy and redundant with the semantic events below. Drop it.
-                    if event_type == "raw_model_event":
-                        continue
-
-                    name, payload, inbound = describe_event(event)
-                    with session_trace.event_span(
-                        payload, received_at, name=name, inbound=inbound
-                    ):
-                        if event_type == "agent_start":
+                        elif event_type == "agent_start":
                             ui.set_state("listening")
 
                         elif event_type == "audio_interrupted":
@@ -220,14 +195,10 @@ async def run(
                         elif event_type == "tool_end":
                             ui.set_state("thinking")
 
-                        elif event_type == "history_added":
-                            log_transcript(payload.get("role"), payload.get("text"))
-
-                        elif event_type == "history_updated":
-                            log_transcript(payload.get("last_role"), payload.get("last_text"))
-
                         elif event_type == "error":
-                            ui.log(f"[openai-agents] server error: {payload.get('error')}")
+                            ui.log(
+                                f"[openai-agents] server error: {getattr(event, 'error', None)}"
+                            )
 
         except Exception as exc:
             # Surface unexpected failures (network drop, auth, …) on the root
@@ -239,5 +210,8 @@ async def run(
                 mic_task.cancel()
             audio_in.stop()
             audio_out.stop()
+            # Emit any messages still pending when the session ended (e.g. Ctrl-C
+            # mid-utterance) before the turn/root spans close.
+            tracker.flush(hold_last=False)
             session_trace.finalize()
             ui.finish()

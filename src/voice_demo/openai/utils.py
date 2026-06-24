@@ -1,20 +1,13 @@
-"""Helpers for the OpenAI Realtime agent: tracing glue and tool dispatch."""
+"""Application helpers for the OpenAI Realtime agent: tool dispatch.
+
+Tracing glue lives in `tracing.py`; this module is the application side.
+"""
 
 from __future__ import annotations
 
 import json
 
 from .tools import lookup_weather
-
-
-def is_inbound(event_type: str) -> bool:
-    """Direction of an event relative to the model.
-
-    Inbound = something the user sent toward the model (their speech buffer,
-    their transcription) → goes in span `inputs`. Everything else (`response.*`,
-    `error`, `session.*`) is the model/server talking back → span `outputs`.
-    """
-    return event_type.startswith("input_audio_buffer") or "input_audio_transcription" in event_type
 
 
 async def execute_tool(name: str, arguments: str) -> dict:
