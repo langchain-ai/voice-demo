@@ -1,0 +1,19 @@
+README.md
+  s_b50350be3907fc::t_3e9bd1d5dc1f2d 104-115
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.7",
+  "base_commit_sha": "adf4c57fffb855eaf41f50f421b3e0273621724a",
+  "prompts": {},
+  "sessions": {
+    "s_b50350be3907fc": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "97d423d2-8bad-47ce-9309-cb2b238f9c13",
+        "model": "claude-opus-4-8"
+      },
+      "human_author": "Dariel Dato-on <293921406+darieldatoon@users.noreply.github.com>"
+    }
+  }
+}
