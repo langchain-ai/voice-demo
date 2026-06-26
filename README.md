@@ -10,9 +10,10 @@ The point isn't the agents (they're toy weather assistants). The point is
 **how each one is traced**, side-by-side — and how to structure a voice agent
 so the **frontend is swappable** from the agent itself.
 
-Each backend's `agent.py` and `processor.py` carry module docstrings that
-document the framework's tracing model in depth — event/span taxonomies,
-mapping decisions, and the reasoning behind each choice.
+All tracing lives in a vendored LangSmith SDK (`src/voice_demo/sdk/`, see
+below); each backend's `agent.py` and the SDK integration modules carry module
+docstrings that document the framework's tracing model in depth — event/span
+taxonomies, mapping decisions, and the reasoning behind each choice.
 
 ## The tracing principle
 
@@ -29,11 +30,42 @@ mapping decisions, and the reasoning behind each choice.
 | Pipecat | OTel + a span processor (Pipecat spans → `gen_ai.*` / `langsmith.*`) | Pipecat also runs in-process and emits OTel spans (`conversation` / `turn` / `stt` / `llm` / `tts`) behind `enable_tracing=True`. Its processor does the same translation job and attaches the whole-conversation audio to the root. |
 | LiveKit speech-to-speech | OTel — reuses LiveKit's processor **unchanged** | Two variants (`livekit-openai-realtime`, `livekit-google-realtime`) swap the STT/LLM/TTS pipeline for one speech-to-speech model. LiveKit still emits the same span vocabulary (turns, tools, realtime metrics), so the same processor handles it with no changes. |
 
-The folder layout reflects this: the **OTel** backends (LiveKit and its two
-speech-to-speech variants, Pipecat) each pair an `agent.py` with a
-`processor.py` that rewrites OTel spans before export. The **SDK** backends
-(OpenAI, ADK) have no processor — they build the trace via
-`voice_demo.sdk_tracing` directly.
+## Where the tracing lives: a vendored LangSmith SDK
+
+All tracing logic is packaged under `src/voice_demo/sdk/integrations/`, which
+**mirrors `langsmith.integrations`** one-to-one. It's a staging ground for code
+destined for the LangSmith SDK: the backends import from it exactly as an end
+user eventually will import from `langsmith.integrations`, the modules carry no
+voice-demo-specific references, and lifting them into the real SDK is a move of
+`sdk/integrations/*`. Two shared bases live in the private
+`sdk/integrations/_voice/`:
+
+- **Track A — `base.py`** (`BaseLangSmithSpanProcessor`): the OTel span
+  processor shared by the integrations whose frameworks emit their own OTel
+  spans (Pipecat, LiveKit). It owns the downstream/exporter wiring (targets
+  LangSmith's OTLP endpoint via the SDK's own exporter), `thread_id` injection,
+  the `gen_ai.*` message writers, and size-capped audio attachment; each
+  framework subclass only classifies and rewrites its own spans.
+- **Track B — `session.py`** (`EventSession`): the LangSmith `RunTree` builder
+  shared by the integrations that observe a remote event stream (OpenAI
+  Realtime, OpenAI Agents realtime, ADK Live) — root span, turn grouping,
+  transcript rollup, point-in-time `llm` spans, and stereo-WAV finalize.
+
+Each backend consumes its integration the way an SDK user would — a one-liner
+that leaves the application's own event loop untouched:
+
+| Backend | Consumes |
+|---|---|
+| OpenAI Realtime | `wrap_realtime(connection)` — a transparent connection proxy |
+| OpenAI Realtime (Agents SDK) | `wrap_realtime_session(session)` — a session proxy |
+| Google ADK Live | `LangSmithLivePlugin` — an ADK `BasePlugin` on the `Runner` |
+| LiveKit (+ S2S variants) | `configure_livekit(...)` |
+| Pipecat | `configure_pipecat(...)` |
+
+The Track B wrappers expose an optional app-fed audio API
+(`record_user_audio` / `record_agent_audio`) so the stereo conversation WAV
+captures what was actually *heard* (recorded at the playout boundary), and the
+OpenAI raw wrapper takes an `is_agent_speaking` callback to flag barge-ins.
 
 ## The frontend is swappable from the agent
 
@@ -60,36 +92,45 @@ Every backend is the same three things: an **agent brain** + **tracing** + a
 ```
 src/voice_demo/
 ├── cli.py                 # the frontend: arg parsing + builds & injects the console transport/UI
-├── tracing.py             # shared LangSmith env wiring (SDK vars / OTLP exporter vars)
-├── sdk_tracing.py         # shared RunTree-per-event machinery (OpenAI, OpenAI Agents, ADK)
+├── tracing.py             # shared LangSmith env wiring (LANGSMITH_* config)
 ├── audio.py               # AudioInput/AudioOutput protocols + MicStream/SpeakerStream
 ├── console.py             # StatusUI protocol + ConsoleStatus / NullUI
 ├── prompts.py             # shared system prompt + greeting
 ├── weather.py             # shared Open-Meteo lookup (no API key)
 ├── graph.py               # LangGraph brain (weather agent ⇄ tools) — used by Pipecat
+│
+├── sdk/                   # ← vendored LangSmith integrations (mirrors langsmith.integrations)
+│   └── integrations/
+│       ├── _voice/
+│       │   ├── base.py        # Track A: BaseLangSmithSpanProcessor (OTel) + message/audio helpers
+│       │   ├── session.py     # Track B: EventSession (RunTree-per-event engine)
+│       │   └── audio.py       # scrub() + stereo-WAV builder
+│       ├── pipecat/           # PipecatLangSmithSpanProcessor · configure_pipecat
+│       ├── livekit/           # LiveKitLangSmithSpanProcessor · configure_livekit
+│       ├── openai/            # wrap_realtime (raw Realtime WebSocket)
+│       ├── openai_agents_sdk/ # wrap_realtime_session (agents.realtime)
+│       └── google_adk/        # LangSmithLivePlugin (ADK run_live)
+│
 ├── openai/
-│   ├── agent.py           # raw Realtime WebSocket event loop → RunTree span per event
-│   ├── utils.py           # event direction + tool dispatch
+│   ├── agent.py           # raw Realtime WebSocket loop, wrapped by wrap_realtime
+│   ├── utils.py           # tool dispatch
 │   └── tools.py           # traceable weather lookup
 ├── openai_agents/
-│   ├── agent.py           # Agents SDK (RealtimeRunner) → RunTree span per semantic event
-│   ├── utils.py           # describe_event(): event → clean span payload + direction
+│   ├── agent.py           # Agents SDK (RealtimeRunner), wrapped by wrap_realtime_session
 │   └── tools.py           # weather lookup as an Agents @function_tool
 ├── adk/
-│   ├── agent.py           # Runner.run_live() driver → RunTree span per event
-│   ├── events.py          # LiveEvent: readable view over ADK's all-optional-fields events
-│   └── utils.py           # event_context(): span-or-skip per event
+│   ├── agent.py           # Runner.run_live() driver; tracing via LangSmithLivePlugin
+│   └── events.py          # LiveEvent: readable view over ADK's all-optional-fields events (app audio/UI)
 ├── livekit/
-│   ├── agent.py           # LiveKit-native agent (cascade or realtime) + tracer wiring
-│   └── processor.py       # OTel processor: lk.* + span events → gen_ai.*/langsmith.*; generic to any LiveKit agent
+│   └── agent.py           # LiveKit-native agent (cascade or realtime) + configure_livekit
 └── pipecat/
-    ├── agent.py           # Pipeline (OpenAI STT/TTS, Silero VAD, LangGraph LLM) + interruption
+    ├── agent.py           # Pipeline (OpenAI STT/TTS, Silero VAD, LangGraph LLM) + configure_pipecat
     ├── langgraph_llm_service.py  # runs the graph inside Pipecat's `llm` span (nests its runs)
-    ├── processor.py       # OTel processor: Pipecat spans → gen_ai.*/langsmith.*; audio attachment
     └── recording_transport.py    # LocalAudioTransport that records what was *heard* (stereo WAV)
 ```
 
-Each backend's module docstrings are the deep-dive companion to its code.
+The SDK integration modules and each backend's `agent.py` carry the deep-dive
+module docstrings.
 
 ## Setup
 
@@ -302,10 +343,11 @@ record at the transport/media layer, never from the model/TTS output.
   ADK `ADK_LIVE_MODEL` (default `gemini-3.1-flash-live-preview`); LiveKit
   `LIVEKIT_LLM_MODEL` / `LIVEKIT_STT_MODEL` / `LIVEKIT_TTS_VOICE`; Pipecat
   `PIPECAT_LLM_MODEL` / `PIPECAT_STT_MODEL` / `PIPECAT_TTS_VOICE`.
-- The two OTel processors are deliberately parallel in design: they wrap
-  their downstream exporter (rewrites always land before export), give the
-  inference spans real message I/O (singular LangChain-format JSON — the
-  indexed `gen_ai.prompt.{n}.*` form can't carry tool calls), keep wrappers
-  as bare chains, and take per-conversation identity (`thread_id_provider`)
-  and audio location by injection rather than owning hidden state. The
-  processor module docstrings document every decision.
+- The two OTel processors share a base class (`_voice/base.py`): it wraps the
+  downstream exporter (rewrites always land before export), gives inference
+  spans real message I/O (singular LangChain-format JSON — the indexed
+  `gen_ai.prompt.{n}.*` form can't carry tool calls), keeps wrappers as bare
+  chains, and takes per-conversation identity (`thread_id_provider`) and audio
+  location by injection rather than owning hidden state. Each framework
+  subclass only classifies and rewrites its own spans; the module docstrings
+  document every decision.

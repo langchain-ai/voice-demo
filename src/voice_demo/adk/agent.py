@@ -2,51 +2,26 @@
 
 Why SDK not OTEL
 ----------------
-ADK emits standard `gen_ai.*` OTel spans for its non-live execution paths
-(Runner.run, BaseAgent.run_async, FunctionTool.run_async, etc.) — but
-`Runner.run_live`, which is the entire voice loop, doesn't appear to be
-instrumented. An OTel-only setup produces a single empty root span and
-nothing inside it. So we treat ADK's `run_live` event stream the same way
-the OpenAI backend treats OpenAI Realtime's WebSocket events: observe each
-event, build the trace explicitly via the shared `voice_demo.sdk_tracing`
-`EventSession`.
+ADK emits standard `gen_ai.*` OTel spans for its non-live paths, but
+`Runner.run_live` — the entire voice loop — isn't instrumented, so an OTel-only
+setup produces a single empty root span. We trace the live event stream instead,
+via the LangSmith voice integration
+`langsmith.integrations.google_adk_live.LangSmithLivePlugin`: an ADK `BasePlugin`
+whose callbacks build the trace as `run_live` yields events.
 
-That refines the demo's "OTel vs SDK" rule:
-
-    OTel  → framework runs in-process and emits its own spans (LiveKit, Pipecat)
-    SDK   → framework hands us an event stream from a remote service
-            (OpenAI Realtime, ADK Live)
+Tracing is the plugin
+---------------------
+The plugin is registered on the `Runner` and runs alongside the application's
+own `run_live` loop. The loop below carries no tracing — it only plays audio,
+handles barge-in, and updates the UI — while the plugin owns every span. The app
+feeds audio for the stereo conversation WAV via the plugin's `record_user_audio`
+/ `record_agent_audio` (recording at the device boundary captures what was
+actually *heard*, post-barge-in-truncation).
 
 Frontend-agnostic
 -----------------
-Like the OpenAI backend, `run()` takes its audio frontend by injection
-(`AudioInput` / `AudioOutput` / optional `StatusUI`); the agent imports no
-console code. The CLI supplies the local-machine implementations.
-
-Trace shape
------------
-One conversation = one trace. Every `run_live` event becomes its own span under
-the session root, in arrival order, carrying that event's full (scrubbed)
-payload — in `inputs` if it's the user's transcribed speech heading to the
-model, in `outputs` if it's the model/server replying. Audio is embedded inside
-events as `inline_data` bytes; events whose *only* payload is an audio chunk are
-played but not spanned (there are too many), and every recorded event has its
-audio bytes scrubbed to a `<N bytes>` placeholder.
-
-    realtime_session                       (root; conversation.wav stereo)
-    │   metadata: thread_id, model, event_count, duration_s
-    │
-    ├── input_transcription               (event — user speech chunk)
-    ├── output_transcription              (event — agent speech chunk)
-    ├── function_call: get_weather        (event)
-    ├── function_response: get_weather    (event)
-    ├── turn_complete                     (event)
-    └── interrupted                       (event)
-
-Tool execution belongs to ADK — it runs the registered function itself between
-the `function_call` and `function_response` events — so the trace records
-exactly those two events rather than synthesizing a separate tool run. The
-event stream is the source of truth.
+`run()` takes its audio frontend by injection (`AudioInput` / `AudioOutput` /
+optional `StatusUI`); the agent imports no console code.
 """
 
 from __future__ import annotations
@@ -60,18 +35,14 @@ import warnings
 from datetime import datetime
 from zoneinfo import ZoneInfo
 
-from langsmith.run_helpers import tracing_context
-
 from ..audio import AudioInput, AudioOutput, resample_pcm16
 from ..console import NullUI, StatusUI, frame_level
-from ..sdk_tracing import start_session
+from langsmith.integrations.google_adk_live import LangSmithLivePlugin
 from ..weather import fetch_weather
 from .events import LiveEvent
-from .utils import event_context
 
-# ADK prints noisy startup messages (an experimental-feature warning, plus a
-# log line about MCP not being installed) that smash into our status line. Mute
-# them here, at import time — well before `run()` lazily imports google.adk.
+# ADK prints noisy startup messages that smash into our status line. Mute them
+# here, at import time — well before `run()` lazily imports google.adk.
 warnings.filterwarnings("ignore", category=UserWarning, module="google.adk")
 logging.getLogger("google_adk").setLevel(logging.ERROR)
 logging.getLogger("google.adk").setLevel(logging.ERROR)
@@ -108,13 +79,8 @@ async def get_weather(city: str) -> dict:
     """Geocode a city name and return current weather.
 
     Delegates to the shared `voice_demo.weather.fetch_weather` (Open-Meteo, no
-    API key) — the same real lookup the OpenAI and LiveKit backends use. ADK
-    awaits coroutine tools, so this runs inside the live event loop; its call
-    and result appear in the trace as function_call/function_response events.
-
-    Returns one of:
-      {"city": str, "country": str, "weather": {...}}    on success
-      {"city": str, "error": "not_found" | "http_error"} on failure
+    API key). ADK awaits coroutine tools, so this runs inside the live event
+    loop; its call and result appear in the trace as function_call/response events.
     """
     return await fetch_weather(city)
 
@@ -167,31 +133,36 @@ async def run(
         tools=[get_time, get_weather],
     )
 
+    thread_id = str(uuid.uuid4())
+
+    # The LangSmith plugin owns all tracing: it opens the conversation root on
+    # `before_run`, spans each event on `on_event`, and finalizes on `after_run`.
+    tracing_plugin = LangSmithLivePlugin(
+        sample_rate=RECV_SAMPLE_RATE,
+        thread_id_provider=lambda: thread_id,
+        project_name=project_name,
+        tags=["voice-demo", "adk"],
+        metadata={"model": MODEL},
+    )
+
     session_service = InMemorySessionService()
     adk_session = await session_service.create_session(app_name=APP_NAME, user_id=USER_ID)
     runner = Runner(
-        app_name=APP_NAME, agent=root_agent, session_service=session_service
+        app_name=APP_NAME,
+        agent=root_agent,
+        session_service=session_service,
+        plugins=[tracing_plugin],
     )
     queue = LiveRequestQueue()
 
-    thread_id = str(uuid.uuid4())
     ui.log(f"[adk] thread_id={thread_id}")
     ui.log(f"[adk] connected with model={MODEL}.")
     ui.log("[adk] talk into your mic — Ctrl-C to quit.")
 
-    session = start_session(
-        thread_id=thread_id,
-        project_name=project_name,
-        sample_rate=RECV_SAMPLE_RATE,
-        tags=["voice-demo", "adk", "session"],
-        metadata={"thread_id": thread_id, "model": MODEL},
-    )
     # Record the AGENT side at the speaker (what was played), not at receipt —
     # so audio that barge-in flushes via clear() is excluded and the WAV
     # reflects what was heard.
-    audio_out.set_played_callback(
-        lambda data: session.record_agent(session.now(), data)
-    )
+    audio_out.set_played_callback(tracing_plugin.record_agent_audio)
 
     audio_in.start()
     audio_out.start()
@@ -204,12 +175,11 @@ async def run(
             queue.send_realtime(
                 genai_types.Blob(
                     data=resample_pcm16(frame, RECV_SAMPLE_RATE, SEND_SAMPLE_RATE),
-                    mime_type=f"audio/pcm;rate={SEND_SAMPLE_RATE}"
+                    mime_type=f"audio/pcm;rate={SEND_SAMPLE_RATE}",
                 )
             )
             ui.update_level(frame_level(frame))
-
-            session.record_user(session.now(), frame)
+            tracing_plugin.record_user_audio(frame)
 
     async def pump_responses() -> None:
         run_config = RunConfig(
@@ -234,55 +204,48 @@ async def run(
                 live_request_queue=queue,
                 run_config=run_config,
             ):
+                # App-only handling (play audio, barge-in, UI). The plugin traces
+                # the same events independently via its callbacks.
                 event = LiveEvent(raw_event)
-                with event_context(session, event):
-                    if event.interrupted:
-                        audio_out.clear()
-                        ui.set_state("hearing you")
+                if event.interrupted:
+                    audio_out.clear()
+                    ui.set_state("hearing you")
 
-                    for chunk in event.audio_chunks:
-                        audio_out.write(chunk)
-                        ui.set_state("speaking")
+                for chunk in event.audio_chunks:
+                    audio_out.write(chunk)
+                    ui.set_state("speaking")
 
-                    if event.user_transcript:
-                        ui.set_state("hearing you")
-                    if event.final_user_transcript:
-                        ui.log(f"user : {event.final_user_transcript}")
-
-                    if event.final_agent_transcript:
-                        ui.log(f"agent: {event.final_agent_transcript}")
-
-                    if event.turn_complete:
-                        ui.set_state("listening")
+                if event.user_transcript:
+                    ui.set_state("hearing you")
+                if event.final_user_transcript:
+                    ui.log(f"user : {event.final_user_transcript}")
+                if event.final_agent_transcript:
+                    ui.log(f"agent: {event.final_agent_transcript}")
+                if event.turn_complete:
+                    ui.set_state("listening")
         except asyncio.CancelledError:
             pass
         except Exception as exc:
-            # Surface unexpected failures (network drop, auth, …) on the root
-            # span — otherwise the session finalizes as if it ended cleanly —
-            # and trigger teardown instead of hanging on a dead response pump.
-            session.run.error = f"{type(exc).__name__}: {exc}"
             ui.log(f"[adk] error: {exc}")
             stop.set()
 
-    with tracing_context(
-        metadata={"thread_id": thread_id},
-        tags=["voice-demo", "adk"],
-        project_name=project_name,
-    ):
-        mic_task = asyncio.create_task(pump_mic())
-        play_task = asyncio.create_task(pump_responses())
+    mic_task = asyncio.create_task(pump_mic())
+    play_task = asyncio.create_task(pump_responses())
 
-        try:
-            await stop.wait()
-        except asyncio.CancelledError:
-            pass
-        finally:
-            queue.close()
-            for t in (mic_task, play_task):
-                t.cancel()
-            await asyncio.gather(mic_task, play_task, return_exceptions=True)
-            audio_in.stop()
-            audio_out.stop()
-            ui.finish()
-
-            session.finalize()
+    try:
+        await stop.wait()
+    except asyncio.CancelledError:
+        pass
+    finally:
+        queue.close()
+        for t in (mic_task, play_task):
+            t.cancel()
+        await asyncio.gather(mic_task, play_task, return_exceptions=True)
+        # Console teardown only: cancelling run_live on Ctrl-C means ADK does not
+        # fire its after-run callback, so run the plugin's cleanup ourselves to
+        # finalize the trace. It is idempotent, and in production (where a session
+        # ends by the queue closing) ADK fires the callback on its own.
+        await tracing_plugin.after_run_callback(invocation_context=None)
+        audio_in.stop()
+        audio_out.stop()
+        ui.finish()

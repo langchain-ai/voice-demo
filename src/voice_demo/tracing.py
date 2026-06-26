@@ -13,11 +13,14 @@ sit next to each other in the LangSmith UI:
 There are two tracing paths (see each backend's own module docstring for why):
 
   * OTEL — LiveKit (including the two realtime backends) and Pipecat run a
-    framework in-process that emits its own OTel spans, so this wires the OTLP
-    exporter env vars that LangSmith's `/otel/v1/traces` endpoint expects.
+    framework in-process that emits its own OTel spans; the LangSmith
+    integrations translate and export those (`langsmith.integrations.{livekit,
+    pipecat}`).
   * SDK  — OpenAI Realtime and ADK Live consume a remote event stream and build
-    the trace themselves with the LangSmith SDK (`RunTree`). Only the API key
-    and project name matter — the SDK reads them directly; no OTLP wiring.
+    the trace themselves with the LangSmith SDK (`RunTree`).
+
+Either way the integrations read LangSmith config (API key, project, endpoint)
+from the standard `LANGSMITH_*` environment, so this module only sets those.
 """
 
 from __future__ import annotations
@@ -34,8 +37,6 @@ Backend = Literal[
     "livekit-openai-realtime",
     "livekit-google-realtime",
 ]
-
-DEFAULT_LANGSMITH_ENDPOINT = "https://api.smith.langchain.com"
 
 
 def project_name_for(backend: Backend, override: str | None = None) -> str:
@@ -65,27 +66,10 @@ def configure(backend: Backend, project: str | None = None) -> str:
     os.environ.setdefault("LANGSMITH_TRACING", "true")
     os.environ["LANGSMITH_PROJECT"] = project_name
 
-    if backend.startswith("livekit") or backend == "pipecat":
-        # OTLP exporter env vars — read by OTLPSpanExporter(). The
-        # `startswith("livekit")` also covers the livekit-*-realtime backends.
-        # (ADK and OpenAI are SDK-traced via RunTree and need no OTLP wiring.)
-        # `Langsmith-Project` header lets the receiver assign spans to the
-        # right project without us having to set it on every span.
-        #
-        # Derive the OTLP endpoint from LANGSMITH_ENDPOINT (the same var the
-        # LangSmith SDK honors) so the OTEL backends point at the same base URL
-        # as the SDK-based OpenAI backend — including a self-hosted/localhost
-        # instance. The OTel ingestion path is `<base>/otel`; OTLPSpanExporter
-        # then appends `/v1/traces`.
-        base = os.environ.get(
-            "LANGSMITH_ENDPOINT", DEFAULT_LANGSMITH_ENDPOINT
-        ).rstrip("/")
-        os.environ.setdefault("OTEL_EXPORTER_OTLP_ENDPOINT", f"{base}/otel")
-        existing_headers = os.environ.get("OTEL_EXPORTER_OTLP_HEADERS", "")
-        if "x-api-key" not in existing_headers:
-            os.environ["OTEL_EXPORTER_OTLP_HEADERS"] = (
-                f"x-api-key={api_key},Langsmith-Project={project_name}"
-            )
+    # No OTLP env wiring is needed: the OTEL backends (LiveKit, Pipecat) export
+    # through the LangSmith SDK integrations' own exporter, which derives the
+    # endpoint + auth headers from the standard LANGSMITH_* config above. (ADK
+    # and OpenAI are SDK-traced via RunTree and likewise need only the API key.)
 
     if backend in ("livekit", "pipecat"):
         # Both these backends run a LangGraph agent as their LLM "brain". Put

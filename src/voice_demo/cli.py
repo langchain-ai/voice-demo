@@ -94,9 +94,9 @@ def main() -> None:
         parser.error("--llm only applies to --backend livekit")
 
     if args.debug:
-        # The OTel→LangSmith span processors log under this logger name.
+        # The LangSmith voice integrations log under this package.
         logging.basicConfig(level=logging.INFO)
-        logging.getLogger("langsmith_processor").setLevel(logging.DEBUG)
+        logging.getLogger("langsmith.integrations").setLevel(logging.DEBUG)
 
     # Realtime LiveKit modes keep their own default LangSmith project, as when
     # they were separate backends (e.g. "<prefix>-livekit-openai-realtime").

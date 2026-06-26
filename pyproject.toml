@@ -37,6 +37,8 @@ livekit = [
     "livekit-plugins-google>=1.0",
 ]
 pipecat = [
+    # The LangSmith Pipecat integration (span processor + its deps, e.g. cachetools).
+    "langsmith[pipecat]>=0.4",
     # openai: STT/LLM/TTS services · local: LocalAudioTransport (mic/speaker) ·
     # tracing: the OTel/setup helpers. Silero VAD ships in pipecat core.
     "pipecat-ai[openai,local,tracing]>=1.0",
@@ -56,3 +58,9 @@ build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/voice_demo"]
+
+# Use the local langsmith-sdk checkout (which ships the voice integrations under
+# langsmith.integrations.*) instead of the published package. Remove this source
+# once the integrations are released to PyPI.
+[tool.uv.sources]
+langsmith = { path = "../langsmith-sdk/python", editable = true }

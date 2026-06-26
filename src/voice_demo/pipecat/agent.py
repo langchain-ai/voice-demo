@@ -4,9 +4,10 @@ Why OTEL and not SDK: Pipecat runs the whole STT → LLM → TTS pipeline
 in-process and emits OTel spans for it natively (a `conversation` root, a
 `turn` span per exchange, and `stt` / `llm` / `tts` child spans), gated behind
 `PipelineTask(enable_tracing=True, enable_turn_tracking=True)`. The framework
-does the hard work; we just register the `LangSmithSpanProcessor` (in
-`processor.py`) that rewrites those spans into the `gen_ai.*` / `langsmith.*`
-namespaces LangSmith keys off, and attach the recorded audio.
+does the hard work; we just call `configure_pipecat` (the LangSmith voice
+integration, `langsmith.integrations.pipecat`), which installs a span processor
+that rewrites those spans into the `gen_ai.*` / `langsmith.*` namespaces
+LangSmith keys off, and attaches the recorded audio.
 
 The "brain" is an in-process **LangGraph** graph (see `graph.py`) plugged in via
 `LangGraphLLMService` (see `langgraph_llm_service.py`) — not Pipecat's stock
@@ -14,9 +15,8 @@ The "brain" is an in-process **LangGraph** graph (see `graph.py`) plugged in via
 the graph inside Pipecat's `@traced_llm` `llm` span, every graph node (the model,
 tool calls) nests as a **subspan of the `llm` span** when
 `LANGSMITH_TRACING_MODE=otel` is set — so you can watch the tool-deciding turn
-and tool execution (traced but never spoken) and fully customize the graph. This mirrors the
-LiveKit backend's "LangGraph brain + OTel" design (and the official LangChain ×
-Pipecat tracing demo's span-translation approach in `processor.py`).
+and tool execution (traced but never spoken) and fully customize the graph. This
+mirrors the LiveKit backend's "LangGraph brain + OTel" design.
 
 ## Interruption handling
 
@@ -32,12 +32,15 @@ Barge-in is a first-class part of the pipeline, not an afterthought:
   * The turn tracker (`enable_turn_tracking=True`) records `was_interrupted` on
     each turn; the span processor surfaces that onto the LangSmith `turn` span.
 
-Recording captures *what was heard*, not what was generated: a
-`RecordingLocalAudioTransport` (see `recording_transport.py`) taps the played
-agent audio at the device-write boundary — reached only after barge-in
-truncation — plus the user's mic, and writes one stereo WAV (L=user, R=agent)
-via the shared `sdk_tracing.build_stereo_session_wav`, exactly as the OpenAI/ADK
-backends do. (Per-turn audio snippets were dropped — full conversation only.)
+## Recording
+
+Audio is recorded with Pipecat's own `AudioBufferProcessor`, placed **after**
+`transport.output()` so it captures the bot audio as actually played (reached
+only after barge-in truncation) plus the user's mic — i.e. *what was heard*. We
+wire it to the span processor with `attach_audio_buffer`, which accumulates the
+merged stereo PCM (user left, bot right) and attaches one WAV to the
+conversation root span when it ends. A non-zero `buffer_size` makes the buffer
+stream periodically, so the audio is accumulated before the root span exports.
 
 Audio I/O is otherwise owned by Pipecat's `LocalAudioTransport` (the framework's
 console transport), which is why this backend doesn't use `voice_demo.audio` —
@@ -49,19 +52,22 @@ from __future__ import annotations
 import os
 import sys
 import uuid
-from datetime import datetime
-from pathlib import Path
 
 LLM_MODEL = os.getenv("PIPECAT_LLM_MODEL", "gpt-4o-mini")
 STT_MODEL = os.getenv("PIPECAT_STT_MODEL", "gpt-4o-mini-transcribe")
 TTS_VOICE = os.getenv("PIPECAT_TTS_VOICE", "alloy")
 
+# Per-track bytes buffered before the AudioBufferProcessor emits an `on_audio_data`
+# event. Non-zero so audio streams in periodically and is accumulated before the
+# conversation span exports (the default 0 emits only once, at stop).
+AUDIO_BUFFER_SIZE = 32_000
+
 
 async def run(project_name: str) -> None:
     """Build and run the Pipecat pipeline with LangSmith tracing.
 
-    Blocks until Ctrl-C. `project_name` is informational here — the trace's
-    LangSmith project is set by the OTLP headers wired in `tracing.configure`.
+    Blocks until Ctrl-C. `project_name` is the LangSmith project the trace lands
+    in (passed to `configure_pipecat`).
     """
     if not os.environ.get("OPENAI_API_KEY"):
         print(
@@ -81,29 +87,43 @@ async def run(project_name: str) -> None:
         LLMContextAggregatorPair,
         LLMUserAggregatorParams,
     )
+    from pipecat.processors.audio.audio_buffer_processor import AudioBufferProcessor
     from pipecat.services.openai.stt import OpenAISTTService
     from pipecat.services.openai.tts import OpenAITTSService
-    from pipecat.transports.local.audio import LocalAudioTransportParams
+    from pipecat.transports.local.audio import (
+        LocalAudioTransport,
+        LocalAudioTransportParams,
+    )
 
     from ..graph import GREETING, SYSTEM_PROMPT, build_graph
+    from langsmith.integrations.pipecat import configure_pipecat, set_thread_id
     from .langgraph_llm_service import LangGraphLLMService
-    from .processor import setup_langsmith_tracing
-    from .recording_transport import ConversationRecorder, RecordingLocalAudioTransport
 
     conversation_id = str(uuid.uuid4())
+    # Bind the thread id in this conversation's context. The span processor reads
+    # it per span via its default provider (a ContextVar), so this scales to
+    # concurrent conversations: each task running run() sees its own id, where a
+    # shared closure would not.
+    set_thread_id(conversation_id)
 
-    # Wire the OTel → LangSmith span processor. tracing.configure() has already
-    # set OTEL_EXPORTER_OTLP_ENDPOINT / _HEADERS (only when a LangSmith key is
-    # present), so this no-ops gracefully into an un-exported provider otherwise.
+    # Wire the OTel → LangSmith span processor. configure_pipecat resolves the
+    # LangSmith exporter config from the standard LANGSMITH_* env, so it no-ops
+    # gracefully (returns None) when no API key is present.
     # llm_span_kind="chain" is paired with LangGraphLLMService below: Pipecat's
-    # `llm` span only orchestrates the graph; the nested model runs are the
-    # real inference. With a stock LLM service, keep the default "llm".
+    # `llm` span only orchestrates the graph; the nested model runs are the real
+    # inference. With a stock LLM service, keep the default "llm".
+    #
+    # Two ways to install the provider: configure_pipecat() installs an OTel
+    # TracerProvider + the LangSmith processor for you (used here). To use your
+    # own provider, skip it and add PipecatLangSmithSpanProcessor(...) to that
+    # provider directly.
     span_processor = (
-        setup_langsmith_tracing(
+        configure_pipecat(
             llm_span_kind="chain",
-            # One conversation per process; its id groups all spans into a
-            # LangSmith thread.
-            thread_id_provider=lambda: conversation_id,
+            # thread_id comes from set_thread_id(conversation_id) above, which
+            # groups all spans into a LangSmith thread.
+            project=project_name,
+            service_name="voice-demo-pipecat",
         )
         if os.environ.get("LANGSMITH_API_KEY")
         else None
@@ -114,24 +134,8 @@ async def run(project_name: str) -> None:
         logger.info("[pipecat] LANGSMITH_API_KEY not set — running without tracing.")
     logger.info(f"[pipecat] conversation_id={conversation_id}")
 
-    # Per-conversation recording directory.
-    recordings_dir = Path.cwd() / "pipecat-recordings"
-    recordings_dir.mkdir(exist_ok=True)
-    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    recording_path = recordings_dir / f"conversation_{timestamp}.wav"
-
-    # Record at the device-write boundary so the WAV captures what was *heard*,
-    # not what was generated: the recording transport taps played agent audio in
-    # write_audio_frame (reached only after barge-in truncation) and user audio
-    # off the input callback, then writes one stereo WAV via the shared
-    # build_stereo_session_wav — the same artifact the OpenAI/ADK backends emit.
-    recorder = ConversationRecorder(recording_path)
-    transport = RecordingLocalAudioTransport(
-        LocalAudioTransportParams(
-            audio_in_enabled=True,
-            audio_out_enabled=True,
-        ),
-        recorder,
+    transport = LocalAudioTransport(
+        LocalAudioTransportParams(audio_in_enabled=True, audio_out_enabled=True)
     )
 
     stt = OpenAISTTService(settings=OpenAISTTService.Settings(model=STT_MODEL))
@@ -156,21 +160,23 @@ async def run(project_name: str) -> None:
         user_params=LLMUserAggregatorParams(vad_analyzer=SileroVADAnalyzer()),
     )
 
-    # The span processor attaches this file to the conversation root span when
-    # that span ends — it calls recorder.save_recording() first (duck-typed).
+    # Pipecat's official recorder: stereo (user left, bot right). Placed after
+    # transport.output() so it taps the bot audio as actually played
+    # (post-barge-in-truncation) plus the user's mic. The span processor reads
+    # its `on_audio_data` events and attaches the WAV to the root span.
+    audiobuffer = AudioBufferProcessor(num_channels=2, buffer_size=AUDIO_BUFFER_SIZE)
     if span_processor is not None:
-        span_processor.register_recording(
-            conversation_id, str(recording_path), audio_recorder=recorder
-        )
+        span_processor.attach_audio_buffer(audiobuffer, conversation_id)
 
     pipeline = Pipeline(
         [
-            transport.input(),  # mic in (taps user audio for the recording)
+            transport.input(),  # mic in
             stt,  # speech → text
             context_aggregator.user(),  # add user msg to context
             llm,  # text → response (+ tool calls)
             tts,  # response → speech
-            transport.output(),  # speaker out (taps played agent audio)
+            transport.output(),  # speaker out
+            audiobuffer,  # record what was heard (after output)
             context_aggregator.assistant(),  # add assistant msg to context
         ]
     )
@@ -190,15 +196,10 @@ async def run(project_name: str) -> None:
     # so the conversation root aggregates from the first real user turn onward.
     await task.queue_frames([TTSSpeakFrame(text=GREETING, append_to_context=True)])
 
+    # Begin recording. start_recording() only flips a flag and resets buffers (no
+    # sample-rate dependency); the StartFrame sets the rate before any audio flows.
+    await audiobuffer.start_recording()
+
     logger.info("[pipecat] connected — say something (Ctrl-C to quit).")
-    runner = PipelineRunner(
-        handle_sigint=False if sys.platform == "win32" else True
-    )
-    try:
-        await runner.run(task)
-    finally:
-        # Idempotent — also called by the span processor when the conversation
-        # span ends (so the file exists in time to be attached). This covers the
-        # no-tracing path and any shutdown ordering.
-        recorder.save_recording()
-        logger.info(f"[pipecat] recording saved to {recording_path}")
+    runner = PipelineRunner(handle_sigint=False if sys.platform == "win32" else True)
+    await runner.run(task)

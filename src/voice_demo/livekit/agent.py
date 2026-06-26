@@ -14,11 +14,11 @@ the console entrypoint are shared.
 
 Why OTEL and not SDK: LiveKit's Agents SDK emits OTel spans natively across
 its STT, LLM, TTS, turn-detection, and EOU pipeline. The framework does the
-hard work — we just wire a TracerProvider with the vendored
-`LangSmithSpanProcessor` (in `processor.py`) that translates LiveKit's `lk.*`
-vendor-prefixed attributes into the `gen_ai.*` / `langsmith.*` namespaces
-that the LangSmith UI keys off. Audio attachments come for free because the
-processor already does them.
+hard work — we just call `configure_livekit` (the LangSmith voice integration,
+`langsmith.integrations.livekit`), which wires a TracerProvider with a span
+processor that translates LiveKit's `lk.*` vendor-prefixed attributes into the
+`gen_ai.*` / `langsmith.*` namespaces that the LangSmith UI keys off. Audio
+attachments come for free because the processor already does them.
 
 Tools are LiveKit-native: `lookup_weather` is a `@function_tool` on the Agent,
 and the framework owns the tool loop — it executes the function and appends
@@ -37,7 +37,6 @@ point of using LiveKit.)
 
 from __future__ import annotations
 
-import contextvars
 import os
 import sys
 from pathlib import Path
@@ -46,16 +45,20 @@ LLM_MODEL = os.getenv("LIVEKIT_LLM_MODEL", "gpt-4o-mini")
 STT_MODEL = os.getenv("LIVEKIT_STT_MODEL", "gpt-4o-mini-transcribe")
 TTS_VOICE = os.getenv("LIVEKIT_TTS_VOICE", "alloy")
 
-# Per-conversation state handed to the span processor as providers — the app
-# owns the state; the processor stays a self-contained library. The entrypoint
-# sets both once per session.
-_active_thread_id: contextvars.ContextVar[str | None] = contextvars.ContextVar(
-    "voice_demo_livekit_thread_id", default=None
-)
+# The conversation's thread id is set once per session via the SDK's
+# ``set_thread_id`` (a ContextVar) in the entrypoint; the processor reads it per
+# span. The audio path is handed to the processor as an app-owned provider.
+#
 # A module global, not a ContextVar: deferred root spans can be exported at
 # flush/shutdown, outside the job's task tree. Console mode runs one job per
 # process, so a single slot is enough.
 _audio_file_path: Path | None = None
+# This demo runs in console mode, so it uses the local-file recording path
+# (audio_path_provider) below. In a deployed worker ctx.session_directory is
+# ephemeral; production captures audio with LiveKit Egress and attaches it via
+# the processor's expect_recording / complete_recording methods. See the
+# "Record in production with Egress" section of the LangSmith LiveKit docs.
+
 
 # API key each mode needs before LiveKit can construct its models.
 _REQUIRED_API_KEY = {
@@ -87,27 +90,26 @@ def run(project_name: str, *, realtime_provider: str | None = None) -> None:
     # exporter picks them up at module import time.
     from livekit import agents
     from livekit.agents import Agent, AgentSession, function_tool, room_io
-    from livekit.agents.telemetry import set_tracer_provider
-    from opentelemetry import trace as otel_trace
-    from opentelemetry.sdk.trace import TracerProvider
 
     from ..prompts import GREETING, SYSTEM_PROMPT
+    from langsmith.integrations.livekit import configure_livekit, set_thread_id
     from ..weather import fetch_weather
-    from .processor import LangSmithSpanProcessor
 
     # --- Tracing wiring ---
+    # `configure_livekit` builds the TracerProvider, registers the
+    # LangSmith span processor (which targets LangSmith's OTLP endpoint via the
+    # SDK's own exporter), and wires it as both LiveKit's and the OTel global
+    # provider. The audio-path provider stays app-owned.
+    #
+    # Two ways to install the provider: configure_livekit() builds + registers a
+    # global provider for you (used here). To use your own provider, construct
+    # LiveKitLangSmithSpanProcessor(...), add it to that provider, and register
+    # it with LiveKit via livekit.agents.telemetry.set_tracer_provider(...).
     if os.environ.get("LANGSMITH_API_KEY"):
-        provider = TracerProvider()
-        # The processor wraps a BatchSpanProcessor(OTLPSpanExporter()) internally
-        # — it reads OTEL_EXPORTER_OTLP_ENDPOINT / _HEADERS from env.
-        provider.add_span_processor(
-            LangSmithSpanProcessor(
-                thread_id_provider=_active_thread_id.get,
-                audio_path_provider=lambda: _audio_file_path,
-            )
+        configure_livekit(
+            audio_path_provider=lambda: _audio_file_path,
+            project=project_name,
         )
-        set_tracer_provider(provider)  # LiveKit's hook
-        otel_trace.set_tracer_provider(provider)  # OTel global
         print(f"[{label}] LangSmith OTel tracing enabled.", file=sys.stderr)
     else:
         print(
@@ -157,7 +159,7 @@ def run(project_name: str, *, realtime_provider: str | None = None) -> None:
         global _audio_file_path
         # ctx.job.id is unique per dispatch; ctx.room.name is "console" in
         # console mode and would collide every session into one giant thread.
-        _active_thread_id.set(ctx.job.id)
+        set_thread_id(ctx.job.id)
         _audio_file_path = ctx.session_directory / "audio.ogg"
 
         session = _build_session()
@@ -165,9 +167,14 @@ def run(project_name: str, *, realtime_provider: str | None = None) -> None:
             room=ctx.room,
             agent=_Assistant(),
             room_options=room_io.RoomOptions(),
-            # Enables the audio writer; in console mode it also needs the
-            # `--record` CLI flag, which we force into argv below. The processor
-            # reads the resulting audio.ogg and attaches it to the root span.
+            # Turns on LiveKit's session audio recording. In console mode the
+            # recording is written under ctx.session_directory only when the
+            # `--record` CLI flag is set (forced into argv below); the processor
+            # reads that audio.ogg and attaches it to the root span. This
+            # local-file path is a console/dev pattern: in a deployed worker
+            # ctx.session_directory is an ephemeral temp dir deleted at session
+            # end (audio is uploaded to LiveKit's backend), so production should
+            # use egress + attach the recording URL instead.
             record={"audio": True},
         )
 
@@ -179,17 +186,13 @@ def run(project_name: str, *, realtime_provider: str | None = None) -> None:
         if realtime_provider is None:
             await session.say(GREETING)
         else:
-            await session.generate_reply(
-                instructions=(
-                    f'Say: "{GREETING}"'
-                )
-            )
+            await session.generate_reply(instructions=(f'Say: "{GREETING}"'))
 
     # LiveKit's CLI owns argv parsing from here. We force `console` so the user
     # gets a local mic+speaker session without having to remember the subcommand.
-    # `--record` is required in console mode for LiveKit to actually write the
-    # audio file (the `record={"audio": True}` dict alone only takes effect in
-    # dev/start modes); without it the processor has no audio.ogg to attach to
-    # the root span.
+    # `--record` is the console flag that makes LiveKit write the recording to a
+    # local file under ctx.session_directory; without it the processor has no
+    # audio.ogg to attach. (In dev/start modes, record={"audio": True} alone
+    # enables recording, but the file is ephemeral — see the note above.)
     sys.argv = [sys.argv[0], "console", "--record"]
     agents.cli.run_app(server)
