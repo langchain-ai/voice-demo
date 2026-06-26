@@ -1,0 +1,84 @@
+src/voice_demo/sdk/integrations/_voice/__init__.py
+  s_84b1d1bd3be3be::t_71aa2924453fbb 1-15
+src/voice_demo/sdk/integrations/pipecat/processor.py
+  s_84b1d1bd3be3be::t_4a9d9c81607b9c 1-243
+src/voice_demo/openai_agents/agent.py
+  s_84b1d1bd3be3be::t_5b0981aaedb4cf 3-19,34,50,86-87,104-170
+src/voice_demo/pipecat/recording_transport.py
+  s_84b1d1bd3be3be::t_78031414cf0782 17-19,35
+README.md
+  s_84b1d1bd3be3be::t_899ad47355e536 95,101-113,115-116,119,122-123,125,127,132-133
+  s_84b1d1bd3be3be::t_610b8844026afc 33-68
+  s_84b1d1bd3be3be::t_84f4b1fcf0d0b4 13-16
+  s_84b1d1bd3be3be::t_561564a744ea07 334-341
+src/voice_demo/tracing.py
+  s_84b1d1bd3be3be::t_afa8eaaaffd62a 69-72
+  s_84b1d1bd3be3be::t_1638bc6557edad 16-18,20-23
+src/voice_demo/cli.py
+  s_84b1d1bd3be3be::t_eb5dc5db5cde99 97,99
+src/voice_demo/sdk/integrations/_voice/audio.py
+  s_84b1d1bd3be3be::t_2415b4619fc523 1-128
+src/voice_demo/sdk/integrations/livekit/__init__.py
+  s_84b1d1bd3be3be::t_b83a0699880db2 1-74
+src/voice_demo/openai/agent.py
+  s_84b1d1bd3be3be::t_1cddfc88833f12 4-8,15,17,19-24,40,99-124,127-227,229-246
+src/voice_demo/sdk/integrations/_voice/base.py
+  s_84b1d1bd3be3be::t_bde678967166ed 1-153,155,161-167,169-176,197-279
+  s_84b1d1bd3be3be::t_d9073cb137077e 154,156-160,168,177-196
+src/voice_demo/sdk/integrations/_voice/session.py
+  s_84b1d1bd3be3be::t_388594298f8af9 1-327
+src/voice_demo/sdk/integrations/openai/__init__.py
+  s_84b1d1bd3be3be::t_8f86846c98fc4c 1-7
+src/voice_demo/sdk/integrations/openai/_realtime.py
+  s_84b1d1bd3be3be::t_52448391c02f35 1-201,205-428
+  s_84b1d1bd3be3be::t_65c0590dc29283 202-204
+src/voice_demo/sdk/integrations/openai_agents_sdk/__init__.py
+  s_84b1d1bd3be3be::t_bf052cf883ce47 1-12
+.gitignore
+  s_84b1d1bd3be3be::t_2e71374f4d6988 5-9
+src/voice_demo/adk/agent.py
+  s_84b1d1bd3be3be::t_93f2c8b517c96f 5-20,24-25,41,45-46,83-84,137-148,152-155,166,179,183,208-209,211-226,233-234,236-247
+src/voice_demo/livekit/agent.py
+  s_84b1d1bd3be3be::t_38f3c3c62ef9c1 17-21
+  s_84b1d1bd3be3be::t_d257b716327ff6 92,96-99,101-104
+src/voice_demo/sdk/integrations/google_adk/_plugin.py
+  s_84b1d1bd3be3be::t_8adb490f101494 1-244
+src/voice_demo/sdk/integrations/google_adk/__init__.py
+  s_84b1d1bd3be3be::t_92851a320a7a55 1-26
+src/voice_demo/pipecat/agent.py
+  s_84b1d1bd3be3be::t_94ff64e030deee 7-10
+  s_84b1d1bd3be3be::t_a15ecd035fdcf8 90
+  s_84b1d1bd3be3be::t_bd3d90a66aff47 103,108-109
+  s_84b1d1bd3be3be::t_7b0ba383fc37c0 40-41
+src/voice_demo/sdk/integrations/openai_agents_sdk/_realtime.py
+  s_84b1d1bd3be3be::t_4e0f336475fe1d 1-493
+src/voice_demo/sdk/integrations/livekit/processor.py
+  s_84b1d1bd3be3be::t_0ddd8f74c1c031 1-493
+src/voice_demo/sdk/__init__.py
+  s_84b1d1bd3be3be::t_a74d7a5d386fa5 1-9
+src/voice_demo/sdk/integrations/pipecat/__init__.py
+  s_84b1d1bd3be3be::t_12ad25ed7f6a88 1-78
+src/voice_demo/sdk/integrations/__init__.py
+  s_84b1d1bd3be3be::t_43baefbb91fc25 1-6
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.3",
+  "base_commit_sha": "0c486007930b1ddb6194ad03a991d497a7c80946",
+  "prompts": {},
+  "humans": {
+    "h_fd2bd7aaf435a7": {
+      "author": "open-swe[bot] <open-swe@users.noreply.github.com>"
+    }
+  },
+  "sessions": {
+    "s_84b1d1bd3be3be": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "dbe9bcb0-d355-43a5-b559-662d0fa43c90",
+        "model": "claude-opus-4-8"
+      },
+      "human_author": "open-swe[bot] <open-swe@users.noreply.github.com>"
+    }
+  }
+}
