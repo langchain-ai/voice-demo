@@ -1,0 +1,83 @@
+.gitignore
+  s_84b1d1bd3be3be::t_2e71374f4d6988 5-9
+src/voice_demo/adk/agent.py
+  s_84b1d1bd3be3be::t_93f2c8b517c96f 5-8,11-19,23-24,44-45,82-83,136-147,151-154,165,178,182,207-208,210-225,232-233,235-243,249-251
+  s_84b1d1bd3be3be::t_5a940db3e405fe 10
+  s_84b1d1bd3be3be::t_05834e00a1cbbb 244-248
+  s_84b1d1bd3be3be::t_69ec9fe20055c4 40
+  s_84b1d1bd3be3be::t_9ab2127b9ccce9 9
+src/voice_demo/openai_agents/agent.py
+  s_84b1d1bd3be3be::t_0100e4540deed0 14
+  s_84b1d1bd3be3be::t_77bcab670547a8 15
+  s_84b1d1bd3be3be::t_5b0981aaedb4cf 3-13,16-18,49,85-86,103-169
+  s_84b1d1bd3be3be::t_75d3b73b0fdb86 33
+src/voice_demo/openai/agent.py
+  s_84b1d1bd3be3be::t_1cddfc88833f12 4,14,16,18-23,98-123,126-226,228-245
+  s_84b1d1bd3be3be::t_cec416dc1fd1dc 6-7
+  s_84b1d1bd3be3be::t_e3c78eac8e1775 5
+  s_84b1d1bd3be3be::t_23c79eb52d5d54 39
+README.md
+  s_84b1d1bd3be3be::t_561564a744ea07 334-341
+  s_84b1d1bd3be3be::t_899ad47355e536 95,101-113,115-116,119,122-123,125,127,132-133
+  s_84b1d1bd3be3be::t_610b8844026afc 33-68
+  s_84b1d1bd3be3be::t_84f4b1fcf0d0b4 13-16
+src/voice_demo/tracing.py
+  s_84b1d1bd3be3be::t_1638bc6557edad 16-18,20-23
+  s_84b1d1bd3be3be::t_afa8eaaaffd62a 69-72
+src/voice_demo/pipecat/agent.py
+  s_84b1d1bd3be3be::t_cdb790c21fdca9 10,18-19,35,37-43,60-63,69-70,90,93-96,104-106,108-109,128-129,154-158,160,164,169-170,190-193,195-196
+  s_0706f91c82facb::t_3a4348c27dc952 36,64
+  s_84b1d1bd3be3be::t_94ff64e030deee 7-9
+  s_84b1d1bd3be3be::t_bd3d90a66aff47 111,116-117
+  s_84b1d1bd3be3be::t_3d1226d95c57b0 99
+src/voice_demo/cli.py
+  s_84b1d1bd3be3be::t_eb5dc5db5cde99 97
+  s_84b1d1bd3be3be::t_7ee37480c0bc1c 99
+pyproject.toml
+  s_84b1d1bd3be3be::t_4d5fd666e1915a 59-64
+src/voice_demo/livekit/agent.py
+  s_84b1d1bd3be3be::t_ca0184b23f64fd 154-155
+  s_84b1d1bd3be3be::t_2f8c4b5c806ad6 143
+  s_84b1d1bd3be3be::t_d257b716327ff6 147-150,152-153,156
+  s_84b1d1bd3be3be::t_19d23ae01d18ee 71,237
+  s_84b1d1bd3be3be::t_38f3c3c62ef9c1 17-21
+  s_84b1d1bd3be3be::t_eedad9e4266e29 44-47
+  s_84b1d1bd3be3be::t_43518f38218c7e 209-211
+  s_84b1d1bd3be3be::t_afb0d8fdc257ce 63-69
+  s_84b1d1bd3be3be::t_b8842e22639e91 218-225
+  s_84b1d1bd3be3be::t_85ddd0d036bd70 241-244
+  s_84b1d1bd3be3be::t_8c303fa282ecef 72-109
+  s_84b1d1bd3be3be::t_2097e7fe824df4 70
+uv.lock
+  s_0706f91c82facb::t_3a4348c27dc952 3955-3956
+  s_84b1d1bd3be3be::t_55f3dceac2b269 1369,1371-1372,1379-1380,1393-1495
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.3",
+  "base_commit_sha": "3a17b76ea19a55b0d0aff404c538f3fb039521ae",
+  "prompts": {},
+  "humans": {
+    "h_fd2bd7aaf435a7": {
+      "author": "open-swe[bot] <open-swe@users.noreply.github.com>"
+    }
+  },
+  "sessions": {
+    "s_0706f91c82facb": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "957b617e-3f2b-436c-828d-cdbbef587b4e",
+        "model": "claude-opus-4-8"
+      },
+      "human_author": null
+    },
+    "s_84b1d1bd3be3be": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "dbe9bcb0-d355-43a5-b559-662d0fa43c90",
+        "model": "claude-opus-4-8"
+      },
+      "human_author": null
+    }
+  }
+}
