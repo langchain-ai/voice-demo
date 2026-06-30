@@ -237,15 +237,18 @@ async def run(
     except asyncio.CancelledError:
         pass
     finally:
+        # Shut down promptly: close the input queue and cancel both pumps.
         queue.close()
         for t in (mic_task, play_task):
             t.cancel()
         await asyncio.gather(mic_task, play_task, return_exceptions=True)
-        # Console teardown only: cancelling run_live on Ctrl-C means ADK does not
-        # fire its after-run callback, so run the plugin's cleanup ourselves to
-        # finalize the trace. It is idempotent, and in production (where a session
-        # ends by the queue closing) ADK fires the callback on its own.
-        await tracing_plugin.after_run_callback(invocation_context=None)
+        # ADK doesn't reliably fire after_run_callback on a cancelled (Ctrl-C)
+        # run, and run_live won't drain promptly mid-turn — so finalize this
+        # conversation's trace ourselves, keyed by the ADK session id (not a
+        # context-less catch-all). Idempotent: if ADK's callback did fire, this
+        # is a no-op. In production a session ends by the queue closing, and ADK
+        # fires the callback with context on its own.
+        tracing_plugin.finalize(session_id=adk_session.id)
         audio_in.stop()
         audio_out.stop()
         ui.finish()
