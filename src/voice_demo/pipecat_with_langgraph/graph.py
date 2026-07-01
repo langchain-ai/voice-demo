@@ -28,8 +28,8 @@ from langchain.agents import create_agent
 from langchain_core.tools import tool
 from langchain_openai import ChatOpenAI
 
-from .prompts import GREETING, SYSTEM_PROMPT
-from .weather import fetch_weather
+from ..prompts import GREETING, SYSTEM_PROMPT
+from ..weather import fetch_weather
 
 __all__ = ["AGENT_MODEL", "GREETING", "SYSTEM_PROMPT", "build_graph", "lookup_weather"]
 

@@ -4,11 +4,13 @@ Each backend traces under a project name derived from a single prefix, so they
 sit next to each other in the LangSmith UI:
 
     voice-demo-openai
+    voice-demo-openai-agents
     voice-demo-adk
     voice-demo-livekit
+    voice-demo-livekit-with-openai-realtime
+    voice-demo-livekit-with-gemini-live
     voice-demo-pipecat
-    voice-demo-livekit-openai-realtime
-    voice-demo-livekit-google-realtime
+    voice-demo-pipecat-with-langgraph
 
 There are two tracing paths (see each backend's own module docstring for why):
 
@@ -31,11 +33,13 @@ from typing import Literal
 
 Backend = Literal[
     "openai",
+    "openai-agents",
     "adk",
     "livekit",
+    "livekit-with-openai-realtime",
+    "livekit-with-gemini-live",
     "pipecat",
-    "livekit-openai-realtime",
-    "livekit-google-realtime",
+    "pipecat-with-langgraph",
 ]
 
 

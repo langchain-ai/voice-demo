@@ -1,29 +1,22 @@
 """Pipecat voice agent, traced via OpenTelemetry into LangSmith.
 
-This is the *minimal* Pipecat setup: Pipecat's own `OpenAILLMService` fills the
-LLM slot, with a native Pipecat function tool for the weather lookup. For the
-variant that swaps the LLM stage for an in-process LangGraph "brain" (so every
-graph node nests under the `llm` span), see `pipecat_with_langgraph/`.
-
-Why OTEL and not SDK: Pipecat runs the whole STT → LLM → TTS pipeline in-process
-and emits OTel spans for it natively (a `conversation` root, a `turn` span per
-exchange, and `stt` / `llm` / `tts` child spans), gated behind
+Why OTEL and not SDK: Pipecat runs the whole STT → LLM → TTS pipeline
+in-process and emits OTel spans for it natively (a `conversation` root, a
+`turn` span per exchange, and `stt` / `llm` / `tts` child spans), gated behind
 `PipelineTask(enable_tracing=True, enable_turn_tracking=True)`. The framework
 does the hard work; we just call `configure_pipecat` (the LangSmith voice
 integration, `langsmith.integrations.pipecat`), which installs a span processor
 that rewrites those spans into the `gen_ai.*` / `langsmith.*` namespaces
-LangSmith keys off, and attaches the recorded audio. Here the `llm` span is a
-real inference span (`OpenAILLMService` calls OpenAI directly), so we keep
-`configure_pipecat`'s default `llm_span_kind="llm"` — unlike the LangGraph
-variant, which overrides it to `"chain"`.
+LangSmith keys off, and attaches the recorded audio.
 
-## Tools
-
-`lookup_weather` is a native Pipecat tool: a `FunctionSchema` describing the
-function plus a handler. Because the schema carries its `handler`, advertising it
-on the `LLMContext(tools=[...])` auto-registers it — Pipecat owns the tool loop,
-executing the handler and feeding the call/result back into the context so the
-model sees its own prior tool usage on later turns.
+The "brain" is an in-process **LangGraph** graph (see `graph.py`) plugged in via
+`LangGraphLLMService` (see `langgraph_llm_service.py`) — not Pipecat's stock
+`OpenAILLMService`. Because that service subclasses `OpenAILLMService` and runs
+the graph inside Pipecat's `@traced_llm` `llm` span, every graph node (the model,
+tool calls) nests as a **subspan of the `llm` span** when
+`LANGSMITH_TRACING_MODE=otel` is set — so you can watch the tool-deciding turn
+and tool execution (traced but never spoken) and fully customize the graph. This
+mirrors the LiveKit backend's "LangGraph brain + OTel" design.
 
 ## Interruption handling
 
@@ -34,6 +27,8 @@ Barge-in is a first-class part of the pipeline, not an afterthought:
     in-flight TTS — it truncates the spoken output and discards the rest. (This
     is on by default once a VAD analyzer is present, which is why we don't set
     the deprecated `allow_interruptions` flag.)
+  * The graph is stateless and Pipecat's `LLMContext` is the single source of
+    truth, so an interrupted, never-heard turn never lingers in graph memory.
   * The turn tracker (`enable_turn_tracking=True`) records `was_interrupted` on
     each turn; the span processor surfaces that onto the LangSmith `turn` span.
 
@@ -82,7 +77,6 @@ async def run(project_name: str) -> None:
         sys.exit(1)
 
     from loguru import logger
-    from pipecat.adapters.schemas.function_schema import FunctionSchema
     from pipecat.audio.vad.silero import SileroVADAnalyzer
     from pipecat.frames.frames import TTSSpeakFrame
     from pipecat.pipeline.pipeline import Pipeline
@@ -94,8 +88,6 @@ async def run(project_name: str) -> None:
         LLMUserAggregatorParams,
     )
     from pipecat.processors.audio.audio_buffer_processor import AudioBufferProcessor
-    from pipecat.services.llm_service import FunctionCallParams
-    from pipecat.services.openai.llm import OpenAILLMService
     from pipecat.services.openai.stt import OpenAISTTService
     from pipecat.services.openai.tts import OpenAITTSService
     from pipecat.transports.local.audio import (
@@ -103,9 +95,9 @@ async def run(project_name: str) -> None:
         LocalAudioTransportParams,
     )
 
-    from ..prompts import GREETING, SYSTEM_PROMPT
-    from ..weather import fetch_weather
+    from .graph import GREETING, SYSTEM_PROMPT, build_graph
     from langsmith.integrations.pipecat import configure_pipecat, set_thread_id
+    from .langgraph_llm_service import LangGraphLLMService
 
     conversation_id = str(uuid.uuid4())
     # Bind the thread id in this conversation's context. The span processor reads
@@ -116,9 +108,10 @@ async def run(project_name: str) -> None:
 
     # Wire the OTel → LangSmith span processor. configure_pipecat resolves the
     # LangSmith exporter config from the standard LANGSMITH_* env, so it no-ops
-    # gracefully (returns None) when no API key is present. We keep the default
-    # llm_span_kind="llm": here the `llm` span is a real OpenAI inference call
-    # (unlike pipecat_with_langgraph, where it only orchestrates a graph).
+    # gracefully (returns None) when no API key is present.
+    # llm_span_kind="chain" is paired with LangGraphLLMService below: Pipecat's
+    # `llm` span only orchestrates the graph; the nested model runs are the real
+    # inference. With a stock LLM service, keep the default "llm".
     #
     # Two ways to install the provider: configure_pipecat() installs an OTel
     # TracerProvider + the LangSmith processor for you (used here). To use your
@@ -126,6 +119,7 @@ async def run(project_name: str) -> None:
     # provider directly.
     span_processor = (
         configure_pipecat(
+            llm_span_kind="chain",
             # thread_id comes from set_thread_id(conversation_id) above, which
             # groups all spans into a LangSmith thread.
             project=project_name,
@@ -145,39 +139,22 @@ async def run(project_name: str) -> None:
     )
 
     stt = OpenAISTTService(settings=OpenAISTTService.Settings(model=STT_MODEL))
-    # Stock OpenAI LLM service — the `llm` span is a real inference call.
-    llm = OpenAILLMService(
-        settings=OpenAILLMService.Settings(model=LLM_MODEL, temperature=0.3)
+    # The LLM stage is a LangGraph graph (weather agent ⇄ tools). It runs
+    # in-process inside Pipecat's `llm` span, so its nodes nest as subspans.
+    # Tools live in the graph, not on the Pipecat context.
+    llm = LangGraphLLMService(
+        graph=build_graph(SYSTEM_PROMPT),
+        settings=LangGraphLLMService.Settings(
+            model=LLM_MODEL, system_instruction=SYSTEM_PROMPT
+        ),
     )
     tts = OpenAITTSService(settings=OpenAITTSService.Settings(voice=TTS_VOICE))
 
-    # A native Pipecat function tool. The handler receives FunctionCallParams and
-    # returns its result through result_callback. Because the schema carries the
-    # handler, advertising it on the LLMContext below auto-registers it — Pipecat
-    # runs the tool loop and writes the call/result back into the context.
-    async def lookup_weather(params: FunctionCallParams) -> None:
-        weather = await fetch_weather(params.arguments["city"])
-        await params.result_callback(weather)
-
-    weather_tool = FunctionSchema(
-        name="lookup_weather",
-        description="Get the current weather for a single city. Call once per city.",
-        properties={
-            "city": {"type": "string", "description": "City name, e.g. 'Paris'."}
-        },
-        required=["city"],
-        handler=lookup_weather,
-    )
-
-    # Universal LLM context (pipecat ≥1.x), seeded with the system prompt and the
-    # weather tool. The aggregator pair feeds user/assistant turns in and out of
-    # it. The VAD analyzer goes on the USER aggregator (not the transport) —
-    # that's what delimits the user's turn so STT commits a segment and the LLM
-    # runs.
-    context = LLMContext(
-        messages=[{"role": "system", "content": SYSTEM_PROMPT}],
-        tools=[weather_tool],
-    )
+    # Universal LLM context (pipecat ≥1.x). The aggregator pair feeds
+    # user/assistant turns in and out of it. The VAD analyzer goes on the USER
+    # aggregator (not the transport) — that's what delimits the user's turn so
+    # STT commits a segment and the LLM runs.
+    context = LLMContext()
     context_aggregator = LLMContextAggregatorPair(
         context,
         user_params=LLMUserAggregatorParams(vad_analyzer=SileroVADAnalyzer()),

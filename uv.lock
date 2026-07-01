@@ -1398,6 +1398,13 @@ google-adk = [
     { name = "google-adk" },
     { name = "wrapt" },
 ]
+livekit = [
+    { name = "cachetools" },
+    { name = "livekit-agents" },
+    { name = "opentelemetry-api" },
+    { name = "opentelemetry-exporter-otlp-proto-http" },
+    { name = "opentelemetry-sdk" },
+]
 pipecat = [
     { name = "cachetools" },
     { name = "opentelemetry-api" },
@@ -1414,7 +1421,7 @@ requires-dist = [
     { name = "claude-agent-sdk", marker = "python_full_version >= '3.10' and extra == 'claude-agent-sdk'", specifier = ">=0.1.0" },
     { name = "distro", specifier = ">=1.7.0" },
     { name = "google-adk", marker = "extra == 'google-adk'", specifier = ">=1.0.0" },
-    { name = "google-adk", marker = "extra == 'google-adk-live'", specifier = ">=1.0.0" },
+    { name = "google-adk", marker = "extra == 'google-adk-live'", specifier = ">=1.14.0" },
     { name = "httpx", specifier = ">=0.23.0,<1" },
     { name = "langsmith-pyo3", marker = "extra == 'langsmith-pyo3'", specifier = ">=0.1.0rc2" },
     { name = "livekit-agents", marker = "extra == 'livekit'", specifier = ">=1.0" },
@@ -2567,7 +2574,7 @@ wheels = [
 
 [[package]]
 name = "pipecat-ai"
-version = "1.3.0"
+version = "1.4.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "aiofiles" },
@@ -2585,21 +2592,22 @@ dependencies = [
     { name = "protobuf" },
     { name = "pydantic" },
     { name = "pyloudnorm" },
+    { name = "pyyaml" },
+    { name = "pyyaml-include" },
     { name = "resampy" },
     { name = "soxr" },
+    { name = "typing-extensions" },
     { name = "wait-for2", marker = "python_full_version < '3.12'" },
+    { name = "websockets" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/92/cc/8352e30c47ee4fd075b9a0f3d91183294582578f07289180a30fc8228409/pipecat_ai-1.3.0.tar.gz", hash = "sha256:abeb9d95b1df2f35b855334cda1899fc603124d5448967c82ba08a94c604318f", size = 11260868, upload-time = "2026-05-29T01:03:00.532Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/d5/ed/4bcf67703996ac6a0896dc64232e79fdfcb23eccff36929a7a234587a085/pipecat_ai-1.4.0.tar.gz", hash = "sha256:4d1e68da79e0632dcdaf66581fbf07e840249dfb715dc6e57b423d20fc3520d7", size = 11505429, upload-time = "2026-06-17T03:27:48.83Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/b6/73/fff17b48cd254ad1c358d612ce92fcc342838e0fc43cc235aca3c70527fb/pipecat_ai-1.3.0-py3-none-any.whl", hash = "sha256:59d4950a61a0a201cf551354d8cdec038c1bdf457df080cd41d29d7ff53e0b2e", size = 10905336, upload-time = "2026-05-29T01:02:57.764Z" },
+    { url = "https://files.pythonhosted.org/packages/7e/ab/9acf81effd93f6f6d1ededbe5db8fedb50d196363d75188dc21d8aa71d5a/pipecat_ai-1.4.0-py3-none-any.whl", hash = "sha256:d7e1f2ee6f2646720daed3a028835d0e26e5e93787d0424ab00f4c7b6034a170", size = 11171447, upload-time = "2026-06-17T03:27:46.367Z" },
 ]
 
 [package.optional-dependencies]
 local = [
     { name = "pyaudio" },
-]
-openai = [
-    { name = "websockets" },
 ]
 tracing = [
     { name = "opentelemetry-api" },
@@ -3099,6 +3107,18 @@ wheels = [
     { url = "https://files.pythonhosted.org/packages/da/92/1446574745d74df0c92e6aa4a7b0b3130706a4142b2d1a5869f2eaa423c6/pyyaml-6.0.3-cp314-cp314t-musllinux_1_2_x86_64.whl", hash = "sha256:16249ee61e95f858e83976573de0f5b2893b3677ba71c9dd36b9cf8be9ac6d65", size = 829923, upload-time = "2025-09-25T21:32:54.537Z" },
     { url = "https://files.pythonhosted.org/packages/f0/7a/1c7270340330e575b92f397352af856a8c06f230aa3e76f86b39d01b416a/pyyaml-6.0.3-cp314-cp314t-win_amd64.whl", hash = "sha256:4ad1906908f2f5ae4e5a8ddfce73c320c2a1429ec52eafd27138b7f1cbe341c9", size = 174062, upload-time = "2025-09-25T21:32:55.767Z" },
     { url = "https://files.pythonhosted.org/packages/f1/12/de94a39c2ef588c7e6455cfbe7343d3b2dc9d6b6b2f40c4c6565744c873d/pyyaml-6.0.3-cp314-cp314t-win_arm64.whl", hash = "sha256:ebc55a14a21cb14062aa4162f906cd962b28e2e9ea38f9b4391244cd8de4ae0b", size = 149341, upload-time = "2025-09-25T21:32:56.828Z" },
+]
+
+[[package]]
+name = "pyyaml-include"
+version = "1.4.1"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "pyyaml" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/7f/be/2d07ad85e3d593d69640876a8686eae2c533db8cb7bf298d25c421b4d2d5/pyyaml-include-1.4.1.tar.gz", hash = "sha256:1a96e33a99a3e56235f5221273832464025f02ff3d8539309a3bf00dec624471", size = 20592, upload-time = "2024-03-25T14:56:43.748Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/d5/ca/6a2cc3a73170d10b5af1f1613baa2ed1f8f46f62dd0bfab2bffd2c2fe260/pyyaml_include-1.4.1-py3-none-any.whl", hash = "sha256:323c7f3a19c82fbc4d73abbaab7ef4f793e146a13383866831631b26ccc7fb00", size = 19079, upload-time = "2024-03-25T14:56:41.274Z" },
 ]
 
 [[package]]
@@ -3944,6 +3964,7 @@ adk = [
     { name = "langsmith", extra = ["google-adk"] },
 ]
 livekit = [
+    { name = "langsmith", extra = ["livekit"] },
     { name = "livekit-agents", extra = ["openai", "silero", "turn-detector"] },
     { name = "livekit-plugins-google" },
 ]
@@ -3960,7 +3981,7 @@ pipecat = [
     { name = "langchain-openai" },
     { name = "langgraph" },
     { name = "langsmith", extra = ["pipecat"] },
-    { name = "pipecat-ai", extra = ["local", "openai", "tracing"] },
+    { name = "pipecat-ai", extra = ["local", "tracing"] },
 ]
 
 [package.metadata]
@@ -3974,6 +3995,7 @@ requires-dist = [
     { name = "langgraph", marker = "extra == 'pipecat'", specifier = ">=0.2" },
     { name = "langsmith", editable = "../langsmith-sdk/python" },
     { name = "langsmith", extras = ["google-adk"], marker = "extra == 'adk'", editable = "../langsmith-sdk/python" },
+    { name = "langsmith", extras = ["livekit"], marker = "extra == 'livekit'", editable = "../langsmith-sdk/python" },
     { name = "langsmith", extras = ["pipecat"], marker = "extra == 'pipecat'", editable = "../langsmith-sdk/python" },
     { name = "livekit-agents", extras = ["openai", "silero", "turn-detector"], marker = "extra == 'livekit'", specifier = ">=1.0" },
     { name = "livekit-plugins-google", marker = "extra == 'livekit'", specifier = ">=1.0" },
@@ -3983,7 +4005,7 @@ requires-dist = [
     { name = "openai-agents", extras = ["realtime"], marker = "extra == 'openai-agents'", specifier = ">=0.2" },
     { name = "opentelemetry-exporter-otlp-proto-http", specifier = ">=1.27" },
     { name = "opentelemetry-sdk", specifier = ">=1.27" },
-    { name = "pipecat-ai", extras = ["openai", "local", "tracing"], marker = "extra == 'pipecat'", specifier = ">=1.0" },
+    { name = "pipecat-ai", extras = ["openai", "local", "tracing"], marker = "extra == 'pipecat'", specifier = ">=1.4" },
     { name = "pydantic", specifier = ">=2" },
     { name = "python-dotenv", specifier = ">=1.0" },
     { name = "scipy", specifier = ">=1.13" },

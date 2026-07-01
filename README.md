@@ -27,8 +27,8 @@ taxonomies, mapping decisions, and the reasoning behind each choice.
 | OpenAI Realtime (Agents SDK) | SDK `RunTree`, one span per event | The same Realtime model, but driven through the OpenAI Agents SDK (`RealtimeAgent` / `RealtimeRunner`) — so the runner owns the turn/tool loop and we observe its **semantic** event stream (`agent_start`, `tool_start` / `tool_end`, `audio_interrupted`, `history_updated`) instead of the raw wire protocol. Same per-event span machinery; the low-level `raw_model_event` passthrough is dropped as noise. |
 | Google ADK Live | SDK `RunTree`, one span per event | Same situation: `Runner.run_live` is a remote stream, and ADK's OTel instrumentation **doesn't cover the live path** — OTel-only setups produce one empty root span. We span each event we observe, in the same shape as the OpenAI backend. |
 | LiveKit | OTel + a span processor (`lk.*` → `gen_ai.*` / `langsmith.*`) | LiveKit Agents runs the full STT/LLM/TTS/VAD pipeline in-process and emits OTel spans for every stage — but under a vendor prefix LangSmith doesn't read. The processor translates them, so transcripts, messages (with tool calls), token usage, per-stage latencies, and the call recording all land in LangSmith. |
-| Pipecat | OTel + a span processor (Pipecat spans → `gen_ai.*` / `langsmith.*`) | Pipecat also runs in-process and emits OTel spans (`conversation` / `turn` / `stt` / `llm` / `tts`) behind `enable_tracing=True`. Its processor does the same translation job and attaches the whole-conversation audio to the root. |
-| LiveKit speech-to-speech | OTel — reuses LiveKit's processor **unchanged** | Two variants (`livekit-openai-realtime`, `livekit-google-realtime`) swap the STT/LLM/TTS pipeline for one speech-to-speech model. LiveKit still emits the same span vocabulary (turns, tools, realtime metrics), so the same processor handles it with no changes. |
+| Pipecat | OTel + a span processor (Pipecat spans → `gen_ai.*` / `langsmith.*`) | Pipecat also runs in-process and emits OTel spans (`conversation` / `turn` / `stt` / `llm` / `tts`) behind `enable_tracing=True`. Its processor does the same translation job and attaches the whole-conversation audio to the root. Two variants: `pipecat` (stock OpenAI LLM service) and `pipecat-with-langgraph` (an in-process LangGraph graph as the LLM stage, so its nodes nest under the `llm` span). |
+| LiveKit speech-to-speech | OTel — reuses LiveKit's processor **unchanged** | Two variants (`livekit-with-openai-realtime`, `livekit-with-gemini-live`) swap the STT/LLM/TTS cascade for one speech-to-speech model. LiveKit still emits the same span vocabulary (turns, tools, realtime metrics), so the same processor handles it with no changes. |
 
 ## Where the tracing lives: a vendored LangSmith SDK
 
@@ -97,7 +97,6 @@ src/voice_demo/
 ├── console.py             # StatusUI protocol + ConsoleStatus / NullUI
 ├── prompts.py             # shared system prompt + greeting
 ├── weather.py             # shared Open-Meteo lookup (no API key)
-├── graph.py               # LangGraph brain (weather agent ⇄ tools) — used by Pipecat
 │
 ├── sdk/                   # ← vendored LangSmith integrations (mirrors langsmith.integrations)
 │   └── integrations/
@@ -122,11 +121,17 @@ src/voice_demo/
 │   ├── agent.py           # Runner.run_live() driver; tracing via LangSmithLivePlugin
 │   └── events.py          # LiveEvent: readable view over ADK's all-optional-fields events (app audio/UI)
 ├── livekit/
-│   └── agent.py           # LiveKit-native agent (cascade or realtime) + configure_livekit
-└── pipecat/
-    ├── agent.py           # Pipeline (OpenAI STT/TTS, Silero VAD, LangGraph LLM) + configure_pipecat
-    ├── langgraph_llm_service.py  # runs the graph inside Pipecat's `llm` span (nests its runs)
-    └── recording_transport.py    # LocalAudioTransport that records what was *heard* (stereo WAV)
+│   └── agent.py           # LiveKit-native cascade (OpenAI STT/LLM/TTS) + configure_livekit
+├── livekit_with_openai_realtime/
+│   └── agent.py           # cascade's LLM slot swapped for OpenAI Realtime (S2S)
+├── livekit_with_gemini_live/
+│   └── agent.py           # cascade's LLM slot swapped for Gemini Live (S2S)
+├── pipecat/
+│   └── agent.py           # Pipeline (OpenAI STT/LLM/TTS, Silero VAD) + configure_pipecat
+└── pipecat_with_langgraph/
+    ├── agent.py           # same pipeline, LLM stage = LangGraph graph + configure_pipecat
+    ├── graph.py           # LangGraph brain (weather agent ⇄ tools)
+    └── langgraph_llm_service.py  # runs the graph inside Pipecat's `llm` span (nests its runs)
 ```
 
 The SDK integration modules and each backend's `agent.py` carry the deep-dive
@@ -158,27 +163,28 @@ step is only needed for `--extra pipecat` / `--all-extras`.
 
 - `LANGSMITH_API_KEY` — for tracing (optional, but the whole point of the demo)
 - `OPENAI_API_KEY` — the two OpenAI Realtime backends (raw WebSocket + Agents
-  SDK), LiveKit's STT/LLM/TTS plugins and its Realtime variant, and Pipecat's
-  STT/TTS + LangGraph brain
-- `GOOGLE_API_KEY` — the ADK Live backend and LiveKit's Gemini Live variant
+  SDK), the LiveKit cascade and its OpenAI Realtime variant, and both Pipecat
+  backends (STT/LLM/TTS, plus the LangGraph brain)
+- `GOOGLE_API_KEY` — the ADK Live backend and the `livekit-with-gemini-live` variant
 - `LIVEKIT_API_KEY` / `LIVEKIT_API_SECRET` / `LIVEKIT_URL` — dummy values are
   fine; LiveKit's SDK only validates them at startup in console mode
 
 ## Run
 
 ```bash
-uv run voice-demo --backend openai           # OpenAI Realtime, raw WebSocket
-uv run voice-demo --backend openai-agents    # OpenAI Realtime, via the Agents SDK
+uv run voice-demo --backend openai                        # OpenAI Realtime, raw WebSocket
+uv run voice-demo --backend openai-agents                 # OpenAI Realtime, via the Agents SDK
 uv run voice-demo --backend adk
-uv run voice-demo --backend livekit
-uv run voice-demo --backend pipecat
-uv run voice-demo --backend livekit --llm openai-realtime   # LiveKit + OpenAI Realtime (S2S)
-uv run voice-demo --backend livekit --llm google-realtime   # LiveKit + Gemini Live (S2S)
+uv run voice-demo --backend livekit                       # LiveKit STT→LLM→TTS cascade
+uv run voice-demo --backend livekit-with-openai-realtime  # LiveKit + OpenAI Realtime (S2S)
+uv run voice-demo --backend livekit-with-gemini-live      # LiveKit + Gemini Live (S2S)
+uv run voice-demo --backend pipecat                       # Pipecat, stock OpenAI LLM service
+uv run voice-demo --backend pipecat-with-langgraph        # Pipecat, LangGraph brain as LLM stage
 ```
 
-The speech-to-speech variants are the `livekit` backend with its LLM slot
-swapped via `--llm` (the only backends are `openai`, `openai-agents`, `adk`,
-`livekit`, `pipecat`); `--llm` applies to `livekit` only.
+Each setup is a self-contained folder under `src/voice_demo/` — the three
+`livekit*` and two `pipecat*` folders repeat their framework boilerplate on
+purpose, so each reads as one complete example of how to build that stack.
 
 All of them open the local mic + speaker. For LiveKit (all three variants),
 press the spacebar to talk (LiveKit's console UX). For OpenAI, ADK, and
@@ -195,8 +201,8 @@ Try:
 
 Each backend lands in its own project: `voice-demo-openai`,
 `voice-demo-openai-agents`, `voice-demo-adk`, `voice-demo-livekit`,
-`voice-demo-pipecat`, `voice-demo-livekit-openai-realtime`,
-`voice-demo-livekit-google-realtime`.
+`voice-demo-livekit-with-openai-realtime`, `voice-demo-livekit-with-gemini-live`,
+`voice-demo-pipecat`, `voice-demo-pipecat-with-langgraph`.
 
 **OpenAI** — one conversation = one trace; every non-noise WebSocket event is
 its own span, in arrival order (payload in `inputs` for user→model events,

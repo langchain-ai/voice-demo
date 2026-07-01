@@ -94,7 +94,7 @@ def _tool_exchange(input_messages: list, final_messages: list) -> list:
     correct: [..., user, AI(tool_calls), ToolMessage, AI(final answer)].
     For tool-free turns this is empty and behaviour is unchanged.
     """
-    new_messages = final_messages[len(input_messages):]
+    new_messages = final_messages[len(input_messages) :]
     return [
         m
         for m in new_messages
