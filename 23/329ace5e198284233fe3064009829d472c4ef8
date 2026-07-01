@@ -1,0 +1,80 @@
+src/voice_demo/pipecat_with_langgraph/langgraph_llm_service.py
+  s_a2d9c9d6619499::t_1c593e550a8d9b 1-138
+src/voice_demo/pipecat_with_langgraph/graph.py
+  s_a2d9c9d6619499::t_0b940b6c982b18 31-32
+pyproject.toml
+  s_a2d9c9d6619499::t_b18c81c3bf36ee 33,39,43,49-51
+  s_a2d9c9d6619499::t_e73aa6e462d81e 4
+  s_1a6d51e52b3af9::t_b3c247f6f58c5e 34-35
+src/voice_demo/livekit/__init__.py
+  s_a2d9c9d6619499::t_41346fac049949 1-8
+src/voice_demo/livekit_with_openai_realtime/agent.py
+  s_a2d9c9d6619499::t_d218c22ec0334d 1-66,70-122
+  s_a2d9c9d6619499::t_1c593e550a8d9b 67-69
+src/voice_demo/livekit_with_gemini_live/agent.py
+  s_a2d9c9d6619499::t_5408cc2599be6f 1-120
+src/voice_demo/pipecat/__init__.py
+  s_a2d9c9d6619499::t_c4aaa2dea1e131 1,3-10
+src/voice_demo/pipecat/agent.py
+  s_a2d9c9d6619499::t_7ecdee9f93b154 3-10,15-18,20-26,85,97-98,106-107,119-121,148-150,154-180
+README.md
+  s_a2d9c9d6619499::t_e5d89c3976a749 124-134
+  s_a2d9c9d6619499::t_4c537be1469f51 30-31
+  s_a2d9c9d6619499::t_f368a8d5493e52 163-164,166-170,173-175
+  s_a2d9c9d6619499::t_0747fef68f2888 192-193
+  s_a2d9c9d6619499::t_5e3f1a879c39ea 154-156
+src/voice_demo/livekit_with_openai_realtime/__init__.py
+  s_a2d9c9d6619499::t_8ac6f8ebea3cee 1-8
+src/voice_demo/livekit/agent.py
+  s_a2d9c9d6619499::t_09d6ead6a2af84 1-12,19-21,24-26,54-55,61-65,92,95,102-103,106,116,154-155
+src/voice_demo/cli.py
+  s_a2d9c9d6619499::t_0431e8714a61d0 3-8
+  s_a2d9c9d6619499::t_70eb9b774d4356 100
+  s_a2d9c9d6619499::t_53404a1d87e336 122,125-139,143,148-153
+  s_a2d9c9d6619499::t_955cc6ef2cb58e 71-79,81
+  s_a2d9c9d6619499::t_9ddc64df4f81dd 154
+src/voice_demo/pipecat_with_langgraph/__init__.py
+  s_a2d9c9d6619499::t_f99507c089f587 1-11
+  s_a2d9c9d6619499::t_1bbffbdc5636a0 12
+src/voice_demo/pipecat_with_langgraph/agent.py
+  s_a2d9c9d6619499::t_b4ef1795f2a3dd 98
+  s_a2d9c9d6619499::t_3d0f1295cbd67a 95-97
+  s_a2d9c9d6619499::t_3d40cff791564c 99-101
+  s_a2d9c9d6619499::t_194128d2fe9432 1-94,102-205
+src/voice_demo/tracing.py
+  s_a2d9c9d6619499::t_68ded567bd6492 7,10-11,13
+  s_a2d9c9d6619499::t_c50fb069c78f6b 36,39-40,42
+src/voice_demo/livekit_with_gemini_live/__init__.py
+  s_a2d9c9d6619499::t_5b7fb2a21cf81d 1-8
+src/voice_demo/__init__.py
+  s_a2d9c9d6619499::t_cb704fcbfd98ad 1,3-8
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.8",
+  "base_commit_sha": "23329ace5e198284233fe3064009829d472c4ef8",
+  "prompts": {},
+  "humans": {
+    "h_fd2bd7aaf435a7": {
+      "author": "open-swe[bot] <open-swe@users.noreply.github.com>"
+    }
+  },
+  "sessions": {
+    "s_1a6d51e52b3af9": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "498b63ad-8bb7-4e7a-9b8b-bb7adbf54e96",
+        "model": "claude-opus-4-8"
+      },
+      "human_author": "open-swe[bot] <open-swe@users.noreply.github.com>"
+    },
+    "s_a2d9c9d6619499": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "dc86ebad-08b1-4840-9caa-5e78dde6e60a",
+        "model": "claude-opus-4-8"
+      },
+      "human_author": "Caroline di Vittorio <43390382+carolinedivittorio@users.noreply.github.com>"
+    }
+  }
+}
