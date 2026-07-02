@@ -68,7 +68,13 @@ def run(project_name: str) -> None:
     # Import after the env vars are set in tracing.configure() so the OTLP
     # exporter picks them up at module import time.
     from livekit import agents
-    from livekit.agents import Agent, AgentSession, function_tool, room_io
+    from livekit.agents import (
+        Agent,
+        AgentSession,
+        TurnHandlingOptions,
+        function_tool,
+        room_io,
+    )
 
     from ..prompts import GREETING, SYSTEM_PROMPT
     from langsmith.integrations.livekit import configure_livekit, set_thread_id
@@ -109,7 +115,9 @@ def run(project_name: str) -> None:
             llm=lk_openai.LLM(model=LLM_MODEL, temperature=0.3),
             tts=lk_openai.TTS(model="tts-1", voice=TTS_VOICE),
             vad=silero.VAD.load(),
-            turn_detection=MultilingualModel(),
+            # livekit-agents >=1.6 replaced the top-level ``turn_detection`` arg
+            # with ``turn_handling=TurnHandlingOptions(...)``.
+            turn_handling=TurnHandlingOptions(turn_detection=MultilingualModel()),
         )
 
     class _Assistant(Agent):

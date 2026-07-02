@@ -8,7 +8,7 @@ dependencies = [
     "sounddevice>=0.4",
     "numpy>=1.26",
     "scipy>=1.13",
-    "langsmith>=0.4",
+    "langsmith>=0.9.7",
     "httpx>=0.27",
     "pydantic>=2",
     "opentelemetry-sdk>=1.27",
@@ -27,22 +27,23 @@ openai-agents = [
 adk = [
     "google-adk>=2.0",
     "google-genai>=1.75",
-    "langsmith[google-adk]>=0.4",
+    "langsmith[google-adk]>=0.9.7",
 ]
 livekit = [
     # Covers all three LiveKit backends (cascade + the two S2S variants).
     # The LangSmith LiveKit integration (span processor + its deps, e.g. cachetools).
-    "langsmith[livekit]>=0.4",
+    "langsmith[livekit]>=0.9.7",
     # The agent is LiveKit-native (no LangChain brain): openai = STT/LLM/TTS and
     # the OpenAI Realtime model; silero/turn-detector = the cascade pipeline.
-    "livekit-agents[openai,silero,turn-detector]>=1.0",
+    # Floor is 1.6.4: 1.5.18 (the prior resolve) was yanked on PyPI.
+    "livekit-agents[openai,silero,turn-detector]>=1.6.4",
     # Gemini Live (google.beta.realtime) for the livekit-with-gemini-live backend.
-    "livekit-plugins-google>=1.0",
+    "livekit-plugins-google>=1.6.4",
 ]
 pipecat = [
     # Covers both Pipecat backends (stock OpenAI LLM + the LangGraph variant).
     # The LangSmith Pipecat integration (span processor + its deps, e.g. cachetools).
-    "langsmith[pipecat]>=0.4",
+    "langsmith[pipecat]>=0.9.7",
     # openai: STT/LLM/TTS services · local: LocalAudioTransport (mic/speaker) ·
     # tracing: the OTel/setup helpers. Silero VAD ships in pipecat core.
     # >=1.4: the plain pipecat backend uses FunctionSchema(handler=...), added in 1.4.
@@ -65,9 +66,3 @@ build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/voice_demo"]
-
-# Use the local langsmith-sdk checkout (which ships the voice integrations under
-# langsmith.integrations.*) instead of the published package. Remove this source
-# once the integrations are released to PyPI.
-[tool.uv.sources]
-langsmith = { path = "../langsmith-sdk/python", editable = true }

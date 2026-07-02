@@ -6,7 +6,7 @@ ADK emits standard `gen_ai.*` OTel spans for its non-live paths, but
 `Runner.run_live` — the entire voice loop — isn't instrumented, so an OTel-only
 setup produces a single empty root span. We trace the live event stream instead,
 via the LangSmith voice integration
-`langsmith.integrations.google_adk_live.LangSmithLivePlugin`: an ADK `BasePlugin`
+`langsmith.integrations.google_adk_live.LangSmithGoogleADKLivePlugin`: an ADK `BasePlugin`
 whose callbacks build the trace as `run_live` yields events.
 
 Tracing is the plugin
@@ -37,7 +37,7 @@ from zoneinfo import ZoneInfo
 
 from ..audio import AudioInput, AudioOutput, resample_pcm16
 from ..console import NullUI, StatusUI, frame_level
-from langsmith.integrations.google_adk_live import LangSmithLivePlugin
+from langsmith.integrations.google_adk_live import LangSmithGoogleADKLivePlugin
 from ..weather import fetch_weather
 from .events import LiveEvent
 
@@ -137,7 +137,7 @@ async def run(
 
     # The LangSmith plugin owns all tracing: it opens the conversation root on
     # `before_run`, spans each event on `on_event`, and finalizes on `after_run`.
-    tracing_plugin = LangSmithLivePlugin(
+    tracing_plugin = LangSmithGoogleADKLivePlugin(
         sample_rate=RECV_SAMPLE_RATE,
         thread_id_provider=lambda: thread_id,
         project_name=project_name,
