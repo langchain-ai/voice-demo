@@ -1,0 +1,31 @@
+pyproject.toml
+  s_a22a9bc0776d5e::t_1b0c8476011a43 38-39,41
+src/voice_demo/livekit/agent.py
+  s_a22a9bc0776d5e::t_1c68f89369b419 71-77
+  s_a22a9bc0776d5e::t_860f0876fac70d 118-120
+src/voice_demo/adk/agent.py
+  s_a22a9bc0776d5e::t_687197f442a2cb 9,40,140
+uv.lock
+  s_a22a9bc0776d5e::t_29a5b81c9967c8 1524,1532,1534-1538,1543,1558,1571,1578,1580,1648-1674,1677,1686,1688,1693,1699,1701,1706,1713,1715,1720,1729,1731,1736,1742,1744,4029-4030
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.9",
+  "base_commit_sha": "7499c9da99eca5f31cf2014d7b56cd6922c9b466",
+  "prompts": {},
+  "humans": {
+    "h_fd2bd7aaf435a7": {
+      "author": "open-swe[bot] <open-swe@users.noreply.github.com>"
+    }
+  },
+  "sessions": {
+    "s_a22a9bc0776d5e": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "a8fb85e6-58b0-4f2c-9340-9b7d0d9c6798",
+        "model": "claude-opus-4-8"
+      },
+      "human_author": "Caroline di Vittorio <43390382+carolinedivittorio@users.noreply.github.com>"
+    }
+  }
+}
