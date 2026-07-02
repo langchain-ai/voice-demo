@@ -2,8 +2,8 @@
 
 A pure async fetch shared across backends. Each backend wraps it in whatever
 tracing its stack uses: the OpenAI backend wraps it with LangSmith's
-`@traceable` (see `openai/tools.py`); the LiveKit backend exposes it as a
-LangGraph tool whose execution LiveKit/OTel traces for free.
+`@traceable` (see `openai/tools.py`); the pipecat-with-langgraph backend
+exposes it as a LangGraph tool whose execution is traced through OTel.
 
 The endpoints are fixed constants — the only caller-supplied value is the city
 name, passed as a query parameter — so there's no user-controlled base URL.

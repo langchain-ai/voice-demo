@@ -24,8 +24,7 @@ Only the final assistant text is pushed as `LLMTextFrame` (and thus spoken); the
 tool-deciding turn and tool output are traced but never voiced. They *are*,
 however, written back into Pipecat's `LLMContext` after the run (see
 `_process_context`), so the model can see its own prior tool calls and results on
-later turns — without ever speaking them. This mirrors the LiveKit backend's
-"LangGraph brain + OTel" design.
+later turns — without ever speaking them.
 
 NB: this makes no OpenAI API call of its own — the parent's client stays unused;
 we only inherit its `llm` span, metrics, and frame plumbing.

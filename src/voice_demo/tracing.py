@@ -75,15 +75,14 @@ def configure(backend: Backend, project: str | None = None) -> str:
     # endpoint + auth headers from the standard LANGSMITH_* config above. (ADK
     # and OpenAI are SDK-traced via RunTree and likewise need only the API key.)
 
-    if backend in ("livekit", "pipecat"):
-        # Both these backends run a LangGraph agent as their LLM "brain". Put
-        # the LangSmith SDK in OTel mode so the langchain/langgraph runs emit
-        # through the shared global TracerProvider instead of posting straight
-        # to the LangSmith API. That makes them inherit the active OTel context
-        # and nest UNDER the framework's LLM span — LiveKit's agent_turn/llm_node,
-        # or Pipecat's `llm` span — rather than forming a separate top-level
-        # trace. (openai/adk stay in default langsmith mode — they trace via
-        # RunTree directly.)
+    if backend == "pipecat-with-langgraph":
+        # This backend runs a LangGraph agent as its LLM "brain". Put the
+        # LangSmith SDK in OTel mode so the langchain/langgraph runs emit through
+        # the shared global TracerProvider instead of posting straight to the
+        # LangSmith API — so they inherit the active OTel context and nest UNDER
+        # Pipecat's `llm` span rather than forming a separate top-level trace.
+        # (Every other backend traces natively — via RunTree, or via a framework
+        # OTel span it doesn't feed langchain runs into — so none needs this.)
         os.environ.setdefault("LANGSMITH_TRACING_MODE", "otel")
 
     print(f"[voice-demo] LangSmith project: {project_name}", file=sys.stderr)

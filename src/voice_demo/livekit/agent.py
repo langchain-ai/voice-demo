@@ -163,10 +163,8 @@ def run(project_name: str) -> None:
         await session.say(GREETING)
 
     # LiveKit's CLI owns argv parsing from here. We force `console` so the user
-    # gets a local mic+speaker session without having to remember the subcommand.
-    # `--record` is the console flag that makes LiveKit write the recording to a
-    # local file under ctx.session_directory; without it the processor has no
-    # audio.ogg to attach. (In dev/start modes, record={"audio": True} alone
-    # enables recording, but the file is ephemeral — see the note above.)
+    # gets a local mic+speaker session without having to remember the subcommand,
+    # plus `--record` (the console flag that writes the recording to a local file
+    # for the processor to attach — see the record={"audio": True} note above).
     sys.argv = [sys.argv[0], "console", "--record"]
     agents.cli.run_app(server)

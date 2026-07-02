@@ -15,8 +15,7 @@ The "brain" is an in-process **LangGraph** graph (see `graph.py`) plugged in via
 the graph inside Pipecat's `@traced_llm` `llm` span, every graph node (the model,
 tool calls) nests as a **subspan of the `llm` span** when
 `LANGSMITH_TRACING_MODE=otel` is set — so you can watch the tool-deciding turn
-and tool execution (traced but never spoken) and fully customize the graph. This
-mirrors the LiveKit backend's "LangGraph brain + OTel" design.
+and tool execution (traced but never spoken) and fully customize the graph.
 
 ## Interruption handling
 
@@ -173,7 +172,7 @@ async def run(project_name: str) -> None:
             transport.input(),  # mic in
             stt,  # speech → text
             context_aggregator.user(),  # add user msg to context
-            llm,  # text → response (+ tool calls)
+            llm,  # text → response
             tts,  # response → speech
             transport.output(),  # speaker out
             audiobuffer,  # record what was heard (after output)

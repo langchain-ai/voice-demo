@@ -145,7 +145,6 @@ async def run(project_name: str) -> None:
     )
 
     stt = OpenAISTTService(settings=OpenAISTTService.Settings(model=STT_MODEL))
-    # Stock OpenAI LLM service — the `llm` span is a real inference call.
     llm = OpenAILLMService(
         settings=OpenAILLMService.Settings(model=LLM_MODEL, temperature=0.3)
     )

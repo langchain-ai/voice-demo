@@ -96,8 +96,6 @@ async def run(
 
     mic_task: asyncio.Task | None = None
     try:
-        # `wrap_realtime` builds the LangSmith trace from the event stream; the
-        # loop below is pure application behavior.
         async with client.realtime.connect(model=DEFAULT_MODEL) as raw, wrap_realtime(
             raw,
             thread_id=thread_id,
