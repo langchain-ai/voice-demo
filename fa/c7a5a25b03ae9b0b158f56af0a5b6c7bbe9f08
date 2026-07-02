@@ -1,0 +1,54 @@
+src/voice_demo/pipecat_with_langgraph/graph.py
+  s_1e1e290e33a719::t_4f81562223c7ad 47
+src/voice_demo/tracing.py
+  s_1e1e290e33a719::t_20dae8313b3e5c 78-85
+src/voice_demo/openai/utils.py
+  s_1e1e290e33a719::t_1a2ba7686a3c12 3-4
+src/voice_demo/weather.py
+  s_1e1e290e33a719::t_6d22105b0192ce 5-6
+src/voice_demo/livekit/agent.py
+  s_1e1e290e33a719::t_b2073167df683b 166-168
+.env.example
+  s_1e1e290e33a719::t_cf47d18d406361 10
+  s_1e1e290e33a719::t_b8184b4836fa8f 5-7
+src/voice_demo/pipecat_with_langgraph/langgraph_llm_service.py
+  s_1e1e290e33a719::t_3ba9364cc6cd66 27
+README.md
+  s_1e1e290e33a719::t_88f4d9bbbbaa19 9,19-22,26,29-30,41-42,44-48,51,53,55-56,59-61,63,69,72-81,84-89
+  s_1e1e290e33a719::t_b51c453eef4f5d 3-4
+  s_1e1e290e33a719::t_105c264dea079c 35
+  s_1e1e290e33a719::t_cd217913b1aa73 65-66
+  h_3a9d271fbf3886 1,6,33
+  s_1e1e290e33a719::t_a09be79c6485d8 67
+  s_1e1e290e33a719::t_58a52fef16cd8e 11-18
+  s_1e1e290e33a719::t_b2cf950bf0a991 34
+src/voice_demo/openai/tools.py
+  s_1e1e290e33a719::t_28fee996e7f6ab 5
+src/voice_demo/pipecat_with_langgraph/agent.py
+  s_1e1e290e33a719::t_619a6209ae4f5f 175
+  s_1e1e290e33a719::t_51eb4d5d7b28ba 18
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.9",
+  "base_commit_sha": "fac7a5a25b03ae9b0b158f56af0a5b6c7bbe9f08",
+  "prompts": {},
+  "humans": {
+    "h_3a9d271fbf3886": {
+      "author": "Caroline di Vittorio <43390382+carolinedivittorio@users.noreply.github.com>"
+    },
+    "h_fd2bd7aaf435a7": {
+      "author": "open-swe[bot] <open-swe@users.noreply.github.com>"
+    }
+  },
+  "sessions": {
+    "s_1e1e290e33a719": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "5b1d666a-b004-4fb9-ad3b-158ae007a1e1",
+        "model": "claude-opus-4-8"
+      },
+      "human_author": "Caroline di Vittorio <43390382+carolinedivittorio@users.noreply.github.com>"
+    }
+  }
+}
