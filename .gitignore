@@ -2,6 +2,11 @@
 __pycache__/
 *.pyc
 .env
+.env.*
+*.pem
+*.key
+*.crt
+credentials.json
 *.egg-info/
 dist/
 build/

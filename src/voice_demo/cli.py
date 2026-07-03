@@ -1,8 +1,11 @@
 """Entry point: `voice-demo --backend <name>`.
 
-Backends: openai · openai-agents · adk · livekit · pipecat. The LiveKit backend additionally
-takes `--llm {openai-realtime,google-realtime}` to swap its STT→LLM→TTS
-cascade for a speech-to-speech realtime model (OpenAI Realtime / Gemini Live).
+Backends: openai · openai-agents · adk · livekit · livekit-with-openai-realtime ·
+livekit-with-gemini-live · pipecat · pipecat-with-langgraph. The two
+`livekit-with-*` backends swap LiveKit's STT→LLM→TTS cascade for a
+speech-to-speech realtime model (OpenAI Realtime / Gemini Live); `pipecat` uses
+Pipecat's stock OpenAI LLM service, while `pipecat-with-langgraph` runs an
+in-process LangGraph graph as the LLM stage.
 
 This module is the *frontend*. It owns everything backend-agnostic — argument
 parsing, LangSmith env wiring, and (for the SDK backends) constructing the local
@@ -65,18 +68,17 @@ def main() -> None:
     parser.add_argument(
         "--backend",
         required=True,
-        choices=("openai", "openai-agents", "adk", "livekit", "pipecat"),
-        help="Which voice-agent stack to launch.",
-    )
-    parser.add_argument(
-        "--llm",
-        default=None,
-        choices=("openai-realtime", "google-realtime"),
-        help=(
-            "LiveKit only: fill the session's LLM slot with a speech-to-speech "
-            "realtime model (OpenAI Realtime / Gemini Live) instead of the "
-            "default STT→LLM→TTS cascade."
+        choices=(
+            "openai",
+            "openai-agents",
+            "adk",
+            "livekit",
+            "livekit-with-openai-realtime",
+            "livekit-with-gemini-live",
+            "pipecat",
+            "pipecat-with-langgraph",
         ),
+        help="Which voice-agent stack to launch.",
     )
     parser.add_argument(
         "--project",
@@ -90,18 +92,12 @@ def main() -> None:
     )
     args = parser.parse_args()
 
-    if args.llm is not None and args.backend != "livekit":
-        parser.error("--llm only applies to --backend livekit")
-
     if args.debug:
-        # The OTel→LangSmith span processors log under this logger name.
+        # The LangSmith voice integrations log under this package.
         logging.basicConfig(level=logging.INFO)
-        logging.getLogger("langsmith_processor").setLevel(logging.DEBUG)
+        logging.getLogger("langsmith.integrations").setLevel(logging.DEBUG)
 
-    # Realtime LiveKit modes keep their own default LangSmith project, as when
-    # they were separate backends (e.g. "<prefix>-livekit-openai-realtime").
-    backend_label = f"{args.backend}-{args.llm}" if args.llm else args.backend
-    project = tracing.configure(backend_label, project=args.project)
+    project = tracing.configure(args.backend, project=args.project)
 
     if args.backend == "openai":
         from .openai.agent import run as run_openai
@@ -123,19 +119,38 @@ def main() -> None:
 
     elif args.backend == "livekit":
         # LiveKit's console mode is its own CLI under the hood; we just hand
-        # control over to it after wiring the tracer. --llm swaps the session's
-        # LLM slot from the STT→LLM→TTS cascade to a realtime (S2S) model.
+        # control over to it after wiring the tracer. STT→LLM→TTS cascade.
         from .livekit.agent import run as run_livekit
 
-        realtime_provider = args.llm.removesuffix("-realtime") if args.llm else None
-        run_livekit(project_name=project, realtime_provider=realtime_provider)
+        run_livekit(project_name=project)
+
+    elif args.backend == "livekit-with-openai-realtime":
+        # Same LiveKit console flow, but the session's LLM slot is a
+        # speech-to-speech OpenAI Realtime model instead of the cascade.
+        from .livekit_with_openai_realtime.agent import run as run_livekit_openai
+
+        run_livekit_openai(project_name=project)
+
+    elif args.backend == "livekit-with-gemini-live":
+        # Same LiveKit console flow, but the session's LLM slot is a
+        # speech-to-speech Gemini Live model instead of the cascade.
+        from .livekit_with_gemini_live.agent import run as run_livekit_gemini
+
+        run_livekit_gemini(project_name=project)
 
     elif args.backend == "pipecat":
         # Pipecat owns its own LocalAudioTransport; we wire the OTel tracer and
-        # run its pipeline.
+        # run its pipeline. Stock OpenAI LLM service.
         from .pipecat.agent import run as run_pipecat
 
         asyncio.run(run_pipecat(project_name=project))
+
+    elif args.backend == "pipecat-with-langgraph":
+        # Same Pipecat pipeline, but the LLM stage is an in-process LangGraph
+        # graph whose nodes nest under the `llm` span.
+        from .pipecat_with_langgraph.agent import run as run_pipecat_langgraph
+
+        asyncio.run(run_pipecat_langgraph(project_name=project))
 
 
 if __name__ == "__main__":

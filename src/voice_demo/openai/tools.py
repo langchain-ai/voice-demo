@@ -2,7 +2,7 @@
 
 `@traceable` makes each lookup a child run under the active event span in
 LangSmith. The actual HTTP work lives in the shared `voice_demo.weather`
-module so the LiveKit backend can reuse it as a LangGraph tool.
+module so the pipecat-with-langgraph backend can reuse it as a LangGraph tool.
 """
 
 from __future__ import annotations

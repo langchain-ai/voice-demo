@@ -1,14 +1,14 @@
 [project]
 name = "voice-demo"
 version = "0.1.0"
-description = "Voice-agent backends (OpenAI Realtime, Google ADK Live, LiveKit STT/LLM/TTS, Pipecat, and LiveKit speech-to-speech for OpenAI Realtime / Gemini Live), each instrumented for LangSmith the way its framework intends."
+description = "Voice-agent backends (OpenAI Realtime, Google ADK Live, LiveKit STT/LLM/TTS cascade, LiveKit speech-to-speech with OpenAI Realtime / Gemini Live, Pipecat, and Pipecat with a LangGraph brain), each instrumented for LangSmith the way its framework intends."
 requires-python = ">=3.11"
 dependencies = [
     "python-dotenv>=1.0",
     "sounddevice>=0.4",
     "numpy>=1.26",
     "scipy>=1.13",
-    "langsmith>=0.4",
+    "langsmith>=0.9.7",
     "httpx>=0.27",
     "pydantic>=2",
     "opentelemetry-sdk>=1.27",
@@ -27,20 +27,30 @@ openai-agents = [
 adk = [
     "google-adk>=2.0",
     "google-genai>=1.75",
-    "langsmith[google-adk]>=0.4",
+    "langsmith[google-adk]>=0.9.7",
 ]
 livekit = [
+    # Covers all three LiveKit backends (cascade + the two S2S variants).
+    # The LangSmith LiveKit integration (span processor + its deps, e.g. cachetools).
+    "langsmith[livekit]>=0.9.7",
     # The agent is LiveKit-native (no LangChain brain): openai = STT/LLM/TTS and
     # the OpenAI Realtime model; silero/turn-detector = the cascade pipeline.
-    "livekit-agents[openai,silero,turn-detector]>=1.0",
-    # Gemini Live (google.beta.realtime) for the livekit-google-realtime backend.
-    "livekit-plugins-google>=1.0",
+    # Floor is 1.6.4: 1.5.18 (the prior resolve) was yanked on PyPI.
+    "livekit-agents[openai,silero,turn-detector]>=1.6.4",
+    # Gemini Live (google.beta.realtime) for the livekit-with-gemini-live backend.
+    "livekit-plugins-google>=1.6.4",
 ]
 pipecat = [
+    # Covers both Pipecat backends (stock OpenAI LLM + the LangGraph variant).
+    # The LangSmith Pipecat integration (span processor + its deps, e.g. cachetools).
+    "langsmith[pipecat]>=0.9.7",
     # openai: STT/LLM/TTS services · local: LocalAudioTransport (mic/speaker) ·
     # tracing: the OTel/setup helpers. Silero VAD ships in pipecat core.
-    "pipecat-ai[openai,local,tracing]>=1.0",
-    # The LLM "brain" is an in-process LangChain agent (create_agent) over LangGraph.
+    # >=1.4: the plain pipecat backend uses FunctionSchema(handler=...), added in 1.4.
+    "pipecat-ai[openai,local,tracing]>=1.4",
+    # The pipecat-with-langgraph backend's "brain" is an in-process LangChain
+    # agent (create_agent) over LangGraph. The plain pipecat backend needs none
+    # of these.
     "langgraph>=0.2",
     "langchain>=1.0",
     "langchain-openai>=0.2",

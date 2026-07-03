@@ -1,6 +1,7 @@
 """Application helpers for the OpenAI Realtime agent: tool dispatch.
 
-Tracing glue lives in `tracing.py`; this module is the application side.
+Tracing lives in the LangSmith `openai_realtime` integration that wraps the
+connection (see `agent.py`); this module is the application side.
 """
 
 from __future__ import annotations
