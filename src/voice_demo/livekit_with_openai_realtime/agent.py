@@ -59,8 +59,9 @@ def run(project_name: str) -> None:
     from ..weather import fetch_weather
 
     # --- Tracing wiring --- (see livekit/agent.py for the full rationale)
+    processor = None
     if os.environ.get("LANGSMITH_API_KEY"):
-        configure_livekit(
+        processor = configure_livekit(
             audio_path_provider=lambda: _audio_file_path,
             project=project_name,
         )
@@ -103,6 +104,13 @@ def run(project_name: str) -> None:
         _audio_file_path = ctx.session_directory / "audio.ogg"
 
         session = _build_session()
+
+        # Capture the realtime user transcript: it's delivered as a session event
+        # (user_input_transcribed), never on a span, after the `user_speaking` span
+        # has ended — so the SDK subscribes here and pairs it with that span.
+        if processor is not None:
+            processor.instrument_session(session, ctx.job.id)
+
         await session.start(
             room=ctx.room,
             agent=_Assistant(),
