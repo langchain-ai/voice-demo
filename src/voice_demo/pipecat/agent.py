@@ -8,7 +8,7 @@ graph node nests under the `llm` span), see `pipecat_with_langgraph/`.
 Why OTEL and not SDK: Pipecat runs the whole STT → LLM → TTS pipeline in-process
 and emits OTel spans for it natively (a `conversation` root, a `turn` span per
 exchange, and `stt` / `llm` / `tts` child spans), gated behind
-`PipelineTask(enable_tracing=True, enable_turn_tracking=True)`. The framework
+`PipelineWorker(enable_tracing=True, enable_turn_tracking=True)`. The framework
 does the hard work; we just call `configure_pipecat` (the LangSmith voice
 integration, `langsmith.integrations.pipecat`), which installs a span processor
 that rewrites those spans into the `gen_ai.*` / `langsmith.*` namespaces
@@ -86,8 +86,8 @@ async def run(project_name: str) -> None:
     from pipecat.audio.vad.silero import SileroVADAnalyzer
     from pipecat.frames.frames import TTSSpeakFrame
     from pipecat.pipeline.pipeline import Pipeline
-    from pipecat.pipeline.runner import PipelineRunner
-    from pipecat.pipeline.task import PipelineParams, PipelineTask
+    from pipecat.pipeline.worker import PipelineParams, PipelineWorker
+    from pipecat.workers.runner import WorkerRunner
     from pipecat.processors.aggregators.llm_context import LLMContext
     from pipecat.processors.aggregators.llm_response_universal import (
         LLMContextAggregatorPair,
@@ -203,7 +203,7 @@ async def run(project_name: str) -> None:
         ]
     )
 
-    task = PipelineTask(
+    worker = PipelineWorker(
         pipeline,
         params=PipelineParams(enable_metrics=True),
         enable_tracing=True,
@@ -216,12 +216,13 @@ async def run(project_name: str) -> None:
     # the assistant's opening message so the model has context on the next turn.
     # Mirrors the LiveKit backend's session.say(GREETING). It adds no `llm` span,
     # so the conversation root aggregates from the first real user turn onward.
-    await task.queue_frames([TTSSpeakFrame(text=GREETING, append_to_context=True)])
+    await worker.queue_frames([TTSSpeakFrame(text=GREETING, append_to_context=True)])
 
     # Begin recording. start_recording() only flips a flag and resets buffers (no
     # sample-rate dependency); the StartFrame sets the rate before any audio flows.
     await audiobuffer.start_recording()
 
     logger.info("[pipecat] connected — say something (Ctrl-C to quit).")
-    runner = PipelineRunner(handle_sigint=False if sys.platform == "win32" else True)
-    await runner.run(task)
+    runner = WorkerRunner(handle_sigint=False if sys.platform == "win32" else True)
+    await runner.add_workers(worker)
+    await runner.run()
