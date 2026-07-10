@@ -1,0 +1,29 @@
+src/voice_demo/pipecat/agent.py
+  s_3bf959a348e45d::t_53860d9b6f1684 89-90
+  s_3bf959a348e45d::t_cf4fa03d13a3b6 11
+  s_3bf959a348e45d::t_76d1669ee072bd 206,219,226-228
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.10",
+  "base_commit_sha": "14eb509a59ffe09454ac9ee9a8e46aa4220fb968",
+  "prompts": {},
+  "humans": {
+    "h_3a9d271fbf3886": {
+      "author": "Caroline di Vittorio <43390382+carolinedivittorio@users.noreply.github.com>"
+    },
+    "h_fd2bd7aaf435a7": {
+      "author": "open-swe[bot] <open-swe@users.noreply.github.com>"
+    }
+  },
+  "sessions": {
+    "s_3bf959a348e45d": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "65b603b3-da84-497d-95fc-f4ba582ebc9b",
+        "model": "claude-opus-4-8"
+      },
+      "human_author": "Caroline di Vittorio <43390382+carolinedivittorio@users.noreply.github.com>"
+    }
+  }
+}
