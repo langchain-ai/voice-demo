@@ -1,0 +1,88 @@
+src/voice_demo/pipecat_with_gemini_live/__init__.py
+  s_c3b6715d0c0842::t_2846941a584427 1-12
+src/voice_demo/livekit/agent.py
+  s_2d2b787a12834a::t_20f91dc7f74899 3
+  s_2d2b787a12834a::t_b313a6069dffcd 41
+  s_2d2b787a12834a::t_1ae485398abb4c 126,134,136,138-144,148
+  s_2d2b787a12834a::t_5c85cac85c199f 69-78,80
+  s_2d2b787a12834a::t_923a02a4700aa2 37-40,42-43
+  s_2d2b787a12834a::t_f631729c111379 125,132-133,135,137,146
+  s_2d2b787a12834a::t_3e3f7d72af02ea 79,81
+  s_2d2b787a12834a::t_74dc28abc07903 4-5
+src/voice_demo/cli.py
+  s_c3b6715d0c0842::t_f669277f3c82ba 5-10
+  s_c3b6715d0c0842::t_013cbbc58dbadd 83
+  s_c3b6715d0c0842::t_d1c568d9f820e4 82
+  s_c3b6715d0c0842::t_32881eef1ffbee 159-165
+  s_c3b6715d0c0842::t_c76b688a433db1 166-173
+  s_c3b6715d0c0842::t_f92c162338611c 4
+src/voice_demo/pipecat_with_gemini_live/agent.py
+  s_c3b6715d0c0842::t_9b90f2823d2c38 1-249
+.env.example
+  s_2d2b787a12834a::t_ef9cae5eaec52f 5-7,10-12,14
+  s_2d2b787a12834a::t_15d92b97532f0e 13,15
+  s_2d2b787a12834a::t_ccd675db5b9490 16
+src/voice_demo/pipecat_with_openai_realtime/__init__.py
+  s_c3b6715d0c0842::t_a8709e19b2e0e3 1-13
+pyproject.toml
+  s_2d2b787a12834a::t_6d0cc1aa732b3b 50-53,55
+  s_c3b6715d0c0842::t_53343fd4b2eb5c 4
+  s_2d2b787a12834a::t_1303d463b1e622 36,38-40
+  s_c3b6715d0c0842::t_0f3e77494d2dde 46-47
+  s_c3b6715d0c0842::t_ae26f24f45eed8 65-68
+  s_2d2b787a12834a::t_600c8f56dca04f 37,41
+src/voice_demo/tracing.py
+  s_c3b6715d0c0842::t_e80c33a6bf081f 15
+  s_c3b6715d0c0842::t_abf474c094e2e5 45
+  s_c3b6715d0c0842::t_6c90463b62e05c 14
+  s_c3b6715d0c0842::t_963f95934c0b5e 46
+src/voice_demo/pipecat/agent.py
+  s_2d2b787a12834a::t_18c80567b98d7e 82-88
+  s_2d2b787a12834a::t_7fcf9c23719046 156-163,167-170
+  s_2d2b787a12834a::t_5aed1c7e8b0306 106-107
+  s_2d2b787a12834a::t_2461a14ce3a643 3-8
+  s_2d2b787a12834a::t_b5c23e8ca22bf2 64-66
+README.md
+  s_2d2b787a12834a::t_b8b9db6358687b 14
+  s_c3b6715d0c0842::t_2826b8ddca9bb2 19
+  s_c3b6715d0c0842::t_c26c83d64f434f 20
+  s_c3b6715d0c0842::t_85255eac11f923 51
+  s_c3b6715d0c0842::t_32059623f07f56 52
+  s_2d2b787a12834a::t_bf48228d020c1a 17
+src/voice_demo/pipecat_with_openai_realtime/agent.py
+  s_c3b6715d0c0842::t_5d64fb6517ecce 1-239
+uv.lock
+  s_2d2b787a12834a::t_63251bbb6f3032 558-573,583-588,1400,1438-1543,1606-1611,1703-1726,2119-2130,2670,2680,2697,2699,2703-2710,4070,4086,4098-4102,4110
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.13",
+  "base_commit_sha": "18a91b901b45471fc962d4c7e1d1ee7020e5e9f8",
+  "prompts": {},
+  "humans": {
+    "h_3a9d271fbf3886": {
+      "author": "Caroline di Vittorio <43390382+carolinedivittorio@users.noreply.github.com>"
+    },
+    "h_fd2bd7aaf435a7": {
+      "author": "open-swe[bot] <open-swe@users.noreply.github.com>"
+    }
+  },
+  "sessions": {
+    "s_2d2b787a12834a": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "7e172fdd-7032-4502-a8f5-553896ca8953",
+        "model": "claude-opus-4-8"
+      },
+      "human_author": "Caroline di Vittorio <43390382+carolinedivittorio@users.noreply.github.com>"
+    },
+    "s_c3b6715d0c0842": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "3a874bad-2c77-40ef-b8fa-299e2e37cd80",
+        "model": "claude-opus-4-8"
+      },
+      "human_author": "Caroline di Vittorio <43390382+carolinedivittorio@users.noreply.github.com>"
+    }
+  }
+}
