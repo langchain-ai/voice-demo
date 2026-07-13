@@ -1,11 +1,13 @@
 """Entry point: `voice-demo --backend <name>`.
 
 Backends: openai · openai-agents · adk · livekit · livekit-with-openai-realtime ·
-livekit-with-gemini-live · pipecat · pipecat-with-langgraph. The two
-`livekit-with-*` backends swap LiveKit's STT→LLM→TTS cascade for a
-speech-to-speech realtime model (OpenAI Realtime / Gemini Live); `pipecat` uses
-Pipecat's stock OpenAI LLM service, while `pipecat-with-langgraph` runs an
-in-process LangGraph graph as the LLM stage.
+livekit-with-gemini-live · pipecat · pipecat-with-langgraph ·
+pipecat-with-openai-realtime · pipecat-with-gemini-live. The
+`*-with-openai-realtime` / `*-with-gemini-live` / `livekit-with-*` backends swap
+their framework's STT→LLM→TTS cascade for a speech-to-speech realtime model
+(OpenAI Realtime / Gemini Live); `pipecat` uses Pipecat's stock OpenAI LLM
+service, while `pipecat-with-langgraph` runs an in-process LangGraph graph as the
+LLM stage.
 
 This module is the *frontend*. It owns everything backend-agnostic — argument
 parsing, LangSmith env wiring, and (for the SDK backends) constructing the local
@@ -77,6 +79,8 @@ def main() -> None:
             "livekit-with-gemini-live",
             "pipecat",
             "pipecat-with-langgraph",
+            "pipecat-with-openai-realtime",
+            "pipecat-with-gemini-live",
         ),
         help="Which voice-agent stack to launch.",
     )
@@ -151,6 +155,21 @@ def main() -> None:
         from .pipecat_with_langgraph.agent import run as run_pipecat_langgraph
 
         asyncio.run(run_pipecat_langgraph(project_name=project))
+
+    elif args.backend == "pipecat-with-openai-realtime":
+        # Same Pipecat pipeline, but the STT/LLM/TTS cascade is collapsed into a
+        # single speech-to-speech OpenAI Realtime model in the LLM slot.
+        from .pipecat_with_openai_realtime.agent import run as run_pipecat_realtime
+
+        asyncio.run(run_pipecat_realtime(project_name=project))
+
+    elif args.backend == "pipecat-with-gemini-live":
+        # Same Pipecat pipeline, but the STT/LLM/TTS cascade is collapsed into a
+        # single speech-to-speech Gemini Live model (turns driven by a local VAD
+        # since Gemini Live emits no turn frames of its own).
+        from .pipecat_with_gemini_live.agent import run as run_pipecat_gemini
+
+        asyncio.run(run_pipecat_gemini(project_name=project))
 
 
 if __name__ == "__main__":

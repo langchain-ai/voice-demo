@@ -556,6 +556,22 @@ wheels = [
 ]
 
 [[package]]
+name = "deepgram-sdk"
+version = "7.4.0"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "httpx" },
+    { name = "pydantic" },
+    { name = "pydantic-core" },
+    { name = "typing-extensions" },
+    { name = "websockets" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/f4/e1/d77f17f55fac94bf6aa81fb01a355ecfd923e12b5f19ef5a67cfc202d652/deepgram_sdk-7.4.0.tar.gz", hash = "sha256:0d35f830bcaa01196e3546b8c326f1d872f8fa52fc841c5640c2d68ef6678a03", size = 212507, upload-time = "2026-06-26T20:55:56.053Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/09/57/718090410686cbc8d039178e518ab9a010c9dd7bbef327918323f562274a/deepgram_sdk-7.4.0-py3-none-any.whl", hash = "sha256:713a84c22dfdb87fa37f44b36ece47938580e3343815254cc19fcaffff9915c5", size = 565593, upload-time = "2026-06-26T20:55:54.565Z" },
+]
+
+[[package]]
 name = "distro"
 version = "1.9.0"
 source = { registry = "https://pypi.org/simple" }
@@ -563,6 +579,12 @@ sdist = { url = "https://files.pythonhosted.org/packages/fc/f8/98eea607f65de6527
 wheels = [
     { url = "https://files.pythonhosted.org/packages/12/b3/231ffd4ab1fc9d679809f356cebee130ac7daa00d6d6f3206dd4fd137e9e/distro-1.9.0-py3-none-any.whl", hash = "sha256:7bffd925d65168f85027d8da9af6bddab658135b840670a223589bc0c8ef02b2", size = 20277, upload-time = "2023-12-24T09:54:30.421Z" },
 ]
+
+[[package]]
+name = "docopt"
+version = "0.6.2"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/a2/55/8f8cab2afd404cf578136ef2cc5dfb50baa1761b68c9da1fb1e4eed343c9/docopt-0.6.2.tar.gz", hash = "sha256:49b3a825280bd66b3aa83585ef59c4a8c82f2c8a522dbe754a8bc8d08c85c491", size = 25901, upload-time = "2014-06-16T11:18:57.406Z" }
 
 [[package]]
 name = "docstring-parser"
@@ -1375,8 +1397,7 @@ wheels = [
 
 [[package]]
 name = "langsmith"
-version = "0.9.7"
-source = { registry = "https://pypi.org/simple" }
+source = { editable = "../langsmith-sdk/python" }
 dependencies = [
     { name = "anyio" },
     { name = "distro" },
@@ -1392,10 +1413,6 @@ dependencies = [
     { name = "websockets" },
     { name = "xxhash" },
     { name = "zstandard" },
-]
-sdist = { url = "https://files.pythonhosted.org/packages/d4/8b/a56b97a3b8a94f850fe2ec42351d4c508cc6bd7ca96644906c311e32ec5b/langsmith-0.9.7.tar.gz", hash = "sha256:40f8a66a466a7abd991a9df1b50de0a9d30c48ee0d3da46ce00516b68e41c9d7", size = 4711142, upload-time = "2026-07-02T20:11:09.619Z" }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/54/95/0abb8647123c9ebbb31162bcdba3183f5f3d3bb2f752ef3d777ab715e88c/langsmith-0.9.7-py3-none-any.whl", hash = "sha256:a5ff9179b77eb0c3a0129294d30924eab13e51e2720f374372dbbc014c892911", size = 671052, upload-time = "2026-07-02T20:11:07.702Z" },
 ]
 
 [package.optional-dependencies]
@@ -1416,6 +1433,112 @@ pipecat = [
     { name = "opentelemetry-exporter-otlp-proto-http" },
     { name = "opentelemetry-sdk" },
     { name = "pipecat-ai" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "anyio", specifier = ">=3.5.0" },
+    { name = "cachetools", marker = "extra == 'livekit'", specifier = ">=5.0.0" },
+    { name = "cachetools", marker = "extra == 'pipecat'", specifier = ">=5.0.0" },
+    { name = "claude-agent-sdk", marker = "python_full_version >= '3.10' and extra == 'claude-agent-sdk'", specifier = ">=0.1.0" },
+    { name = "distro", specifier = ">=1.7.0" },
+    { name = "google-adk", marker = "extra == 'google-adk'", specifier = ">=1.0.0" },
+    { name = "google-adk", marker = "extra == 'google-adk-live'", specifier = ">=1.14.0" },
+    { name = "httpx", specifier = ">=0.23.0,<1" },
+    { name = "langsmith-pyo3", marker = "extra == 'langsmith-pyo3'", specifier = ">=0.1.0rc2" },
+    { name = "livekit-agents", marker = "extra == 'livekit'", specifier = ">=1.0" },
+    { name = "openai", marker = "extra == 'openai-realtime'", specifier = ">=1.50" },
+    { name = "openai-agents", marker = "extra == 'openai-agents'", specifier = ">=0.0.3" },
+    { name = "openai-agents", marker = "extra == 'openai-realtime'", specifier = ">=0.0.3" },
+    { name = "opentelemetry-api", marker = "extra == 'livekit'", specifier = ">=1.30.0" },
+    { name = "opentelemetry-api", marker = "extra == 'otel'", specifier = ">=1.30.0" },
+    { name = "opentelemetry-api", marker = "extra == 'pipecat'", specifier = ">=1.30.0" },
+    { name = "opentelemetry-api", marker = "extra == 'strands-agents'", specifier = ">=1.30.0" },
+    { name = "opentelemetry-exporter-otlp-proto-http", marker = "extra == 'livekit'", specifier = ">=1.30.0" },
+    { name = "opentelemetry-exporter-otlp-proto-http", marker = "extra == 'otel'", specifier = ">=1.30.0" },
+    { name = "opentelemetry-exporter-otlp-proto-http", marker = "extra == 'pipecat'", specifier = ">=1.30.0" },
+    { name = "opentelemetry-exporter-otlp-proto-http", marker = "extra == 'strands-agents'", specifier = ">=1.30.0" },
+    { name = "opentelemetry-sdk", marker = "extra == 'livekit'", specifier = ">=1.30.0" },
+    { name = "opentelemetry-sdk", marker = "extra == 'otel'", specifier = ">=1.30.0" },
+    { name = "opentelemetry-sdk", marker = "extra == 'pipecat'", specifier = ">=1.30.0" },
+    { name = "opentelemetry-sdk", marker = "extra == 'strands-agents'", specifier = ">=1.30.0" },
+    { name = "orjson", marker = "platform_python_implementation != 'PyPy'", specifier = ">=3.9.14" },
+    { name = "packaging", specifier = ">=23.2" },
+    { name = "pipecat-ai", marker = "python_full_version >= '3.11' and extra == 'pipecat'", specifier = ">=1.0" },
+    { name = "pydantic", specifier = ">=2,<3" },
+    { name = "pytest", marker = "extra == 'pytest'", specifier = ">=7.0.0" },
+    { name = "requests", specifier = ">=2.0.0" },
+    { name = "requests-toolbelt", specifier = ">=1.0.0" },
+    { name = "rich", marker = "extra == 'pytest'", specifier = ">=13.9.4" },
+    { name = "sniffio", specifier = ">=1.1" },
+    { name = "strands-agents", marker = "extra == 'strands-agents'", specifier = ">=0.1.0" },
+    { name = "strands-agents-tools", marker = "extra == 'strands-agents'", specifier = ">=0.2.0" },
+    { name = "typing-extensions", specifier = ">=4.0.0" },
+    { name = "uuid-utils", specifier = ">=0.12.0,<1.0" },
+    { name = "vcrpy", marker = "extra == 'pytest'", specifier = ">=7.0.0" },
+    { name = "vcrpy", marker = "extra == 'vcr'", specifier = ">=7.0.0" },
+    { name = "websockets", specifier = ">=15.0" },
+    { name = "wrapt", marker = "extra == 'google-adk'", specifier = ">=1.16.0" },
+    { name = "xxhash", specifier = ">=3.0.0" },
+    { name = "zstandard", specifier = ">=0.23.0" },
+]
+provides-extras = ["claude-agent-sdk", "google-adk", "google-adk-live", "langsmith-pyo3", "livekit", "openai-agents", "openai-realtime", "otel", "pipecat", "pytest", "sandbox", "strands-agents", "vcr"]
+
+[package.metadata.requires-dev]
+dev = [
+    { name = "bump2version", specifier = ">=1.0.1" },
+    { name = "cachetools", specifier = ">=5.0.0" },
+    { name = "claude-agent-sdk", marker = "python_full_version >= '3.10'", specifier = ">=0.1.0" },
+    { name = "dataclasses-json", specifier = ">=0.6.4" },
+    { name = "debugpy", specifier = ">=1.8.17" },
+    { name = "fastapi", specifier = ">=0.115.4" },
+    { name = "freezegun", specifier = ">=1.2.2" },
+    { name = "google-adk", specifier = ">=1.0.0" },
+    { name = "google-genai", specifier = ">=1.2.0" },
+    { name = "httpx", specifier = ">=0.23.0,<0.29.0" },
+    { name = "langchain-anthropic", specifier = ">=1.0.0" },
+    { name = "langchain-core", specifier = ">=1.0.0" },
+    { name = "langchain-openai", specifier = ">=1.0.0" },
+    { name = "multipart", specifier = ">=1.0.0" },
+    { name = "mypy", specifier = ">=1.9.0" },
+    { name = "openai-agents", specifier = ">=0.2.4" },
+    { name = "opentelemetry-api", specifier = ">=1.34.1" },
+    { name = "opentelemetry-exporter-otlp-proto-http", specifier = ">=1.34.1" },
+    { name = "opentelemetry-sdk", specifier = ">=1.34.1" },
+    { name = "pandas-stubs", specifier = ">=2.0.1.230501" },
+    { name = "pillow", specifier = ">=12.0.0" },
+    { name = "psutil", specifier = ">=5.9.5" },
+    { name = "py-spy", specifier = ">=0.3.14" },
+    { name = "pyperf", specifier = ">=2.7.0" },
+    { name = "pytest", specifier = ">=8.3.5" },
+    { name = "pytest-asyncio", specifier = ">=0.21.0" },
+    { name = "pytest-cov", specifier = ">=4.1.0" },
+    { name = "pytest-dotenv", specifier = ">=0.5.2" },
+    { name = "pytest-httpx", specifier = ">=0.30.0" },
+    { name = "pytest-rerunfailures", specifier = ">=14.0" },
+    { name = "pytest-retry", specifier = ">=1.7.0" },
+    { name = "pytest-socket", specifier = ">=0.7.0" },
+    { name = "pytest-subtests", specifier = ">=0.11.0" },
+    { name = "pytest-timeout", specifier = ">=2.3.1" },
+    { name = "pytest-watcher", specifier = ">=0.3.4" },
+    { name = "pytest-xdist", specifier = ">=3.5.0" },
+    { name = "rich", specifier = ">=13.9.4" },
+    { name = "ruff", specifier = ">=0.6.9" },
+    { name = "strands-agents", specifier = ">=0.1.0" },
+    { name = "strands-agents-tools", specifier = ">=0.2.0" },
+    { name = "ty", specifier = "==0.0.44" },
+    { name = "types-psutil", specifier = ">=5.9.5.16" },
+    { name = "types-pyyaml", specifier = ">=6.0.12.10" },
+    { name = "types-requests", specifier = ">=2.31.0.1" },
+    { name = "types-tqdm", specifier = ">=4.66.0.20240106" },
+    { name = "uvicorn", specifier = ">=0.29.0" },
+    { name = "vcrpy", specifier = ">=7.0.0" },
+    { name = "wrapt", specifier = ">=1.16.0" },
+]
+lint = [{ name = "openai", specifier = ">=2.6.0" }]
+test = [
+    { name = "anthropic", specifier = ">=0.45.0" },
+    { name = "pytest-socket", specifier = ">=0.7.0" },
 ]
 
 [[package]]
@@ -1480,6 +1603,12 @@ wheels = [
 ]
 
 [package.optional-dependencies]
+assemblyai = [
+    { name = "livekit-plugins-assemblyai" },
+]
+cartesia = [
+    { name = "livekit-plugins-cartesia" },
+]
 codecs = [
     { name = "numpy" },
 ]
@@ -1569,6 +1698,30 @@ wheels = [
     { url = "https://files.pythonhosted.org/packages/ba/9a/7cdf1a77d5fd80e06533d4f2584c45d2c978f1249338969f814502db45ad/livekit_local_inference-0.2.6-cp314-cp314-manylinux_2_27_aarch64.manylinux_2_28_aarch64.whl", hash = "sha256:80dc582413d816c86a0620410c2bfc3234e782a49d2b07b4bed0ff6285bdf4a1", size = 34824215, upload-time = "2026-06-24T16:55:45.02Z" },
     { url = "https://files.pythonhosted.org/packages/86/f2/0207071f236f639cf9515838ce98cfc3a8c1b19db8e6f46350e7231f2200/livekit_local_inference-0.2.6-cp314-cp314-manylinux_2_27_x86_64.manylinux_2_28_x86_64.whl", hash = "sha256:9c148ec2735e903dc00e37dc2580e0417f67ec7ee4be119dca7844b104afbfe9", size = 34868380, upload-time = "2026-06-24T16:55:48.119Z" },
     { url = "https://files.pythonhosted.org/packages/1e/91/c194db20c8e9272cadf0913d42392cda5eec5e78a14820a3fa678e42e4b6/livekit_local_inference-0.2.6-cp314-cp314-win_amd64.whl", hash = "sha256:4140e4fd60dd7b7d69a55e1d454d5d893f8ffe026c30e0d7cd31fa42b10d5621", size = 34914243, upload-time = "2026-06-24T16:55:51.322Z" },
+]
+
+[[package]]
+name = "livekit-plugins-assemblyai"
+version = "1.6.4"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "livekit-agents" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/6c/78/361481fe2f1d8b3bf89ceaec75bbe485037a2410a82e2e96145a7a75ee6f/livekit_plugins_assemblyai-1.6.4.tar.gz", hash = "sha256:caad6c3805019e66e68873a881948b1cd99a46d4bc83a78c88f8d8111073dd4b", size = 12071, upload-time = "2026-06-24T20:49:23.487Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/31/60/dd172af5a6c4b153042da51f074eae8e99c662fabbb9e154bd69d634475e/livekit_plugins_assemblyai-1.6.4-py3-none-any.whl", hash = "sha256:127cb9efd3603198aae7d0b46d7031fc0681ea307308ab68a6dd0c067898a7a0", size = 12204, upload-time = "2026-06-24T20:49:22.487Z" },
+]
+
+[[package]]
+name = "livekit-plugins-cartesia"
+version = "1.6.4"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "livekit-agents" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/2a/49/57110dd78a6397848c9e306abc5acc3af5dcd07c8377cb3efdf7a49f22a5/livekit_plugins_cartesia-1.6.4.tar.gz", hash = "sha256:17f502f58af7f5e835cc580b9644678d044c023e6d7abf2d4b314ccc53267619", size = 18195, upload-time = "2026-06-24T20:49:41.76Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/4c/31/d99ea46858def84a0bcf2afe84fe8f06ed558ebf870cb638479f02b7ab6d/livekit_plugins_cartesia-1.6.4-py3-none-any.whl", hash = "sha256:4ef5887112299a5a43e6dc849190c5c4c3a854015f8c7d23b6c1919740e5dc8d", size = 25532, upload-time = "2026-06-24T20:49:40.632Z" },
 ]
 
 [[package]]
@@ -1961,6 +2114,18 @@ dependencies = [
 sdist = { url = "https://files.pythonhosted.org/packages/74/a1/b3b4adf15585a5bc4c357adde150c01ebeeb642173ded4d871e89468767c/nltk-3.9.4.tar.gz", hash = "sha256:ed03bc098a40481310320808b2db712d95d13ca65b27372f8a403949c8b523d0", size = 2946864, upload-time = "2026-03-24T06:13:40.641Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/9d/91/04e965f8e717ba0ab4bdca5c112deeab11c9e750d94c4d4602f050295d39/nltk-3.9.4-py3-none-any.whl", hash = "sha256:f2fa301c3a12718ce4a0e9305c5675299da5ad9e26068218b69d692fda84828f", size = 1552087, upload-time = "2026-03-24T06:13:38.47Z" },
+]
+
+[[package]]
+name = "num2words"
+version = "0.5.14"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "docopt" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/f6/58/ad645bd38b4b648eb2fc2ba1b909398e54eb0cbb6a7dbd2b4953e38c9621/num2words-0.5.14.tar.gz", hash = "sha256:b066ec18e56b6616a3b38086b5747daafbaa8868b226a36127e0451c0cf379c6", size = 218213, upload-time = "2024-12-17T20:17:10.191Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/d6/5b/545e9267a1cc080c8a1be2746113a063e34bcdd0f5173fd665a5c13cb234/num2words-0.5.14-py3-none-any.whl", hash = "sha256:1c8e5b00142fc2966fd8d685001e36c4a9911e070d1b120e1beb721fa1edb33d", size = 163525, upload-time = "2024-12-17T20:17:06.074Z" },
 ]
 
 [[package]]
@@ -2502,7 +2667,7 @@ wheels = [
 
 [[package]]
 name = "pipecat-ai"
-version = "1.4.0"
+version = "1.5.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "aiofiles" },
@@ -2512,6 +2677,7 @@ dependencies = [
     { name = "loguru" },
     { name = "markdown" },
     { name = "nltk" },
+    { name = "num2words" },
     { name = "numba" },
     { name = "numpy" },
     { name = "onnxruntime" },
@@ -2528,12 +2694,20 @@ dependencies = [
     { name = "wait-for2", marker = "python_full_version < '3.12'" },
     { name = "websockets" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/d5/ed/4bcf67703996ac6a0896dc64232e79fdfcb23eccff36929a7a234587a085/pipecat_ai-1.4.0.tar.gz", hash = "sha256:4d1e68da79e0632dcdaf66581fbf07e840249dfb715dc6e57b423d20fc3520d7", size = 11505429, upload-time = "2026-06-17T03:27:48.83Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/e3/59/7b46ccbeb7c8f68083d0bc1ef39583e78938c6e65af1ff6f707051ea0948/pipecat_ai-1.5.0.tar.gz", hash = "sha256:df9bd5c3176076d425ffba3d510e0122d055b97c9ba8ad35a4390073eb421e18", size = 11624719, upload-time = "2026-07-04T17:11:50.441Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/7e/ab/9acf81effd93f6f6d1ededbe5db8fedb50d196363d75188dc21d8aa71d5a/pipecat_ai-1.4.0-py3-none-any.whl", hash = "sha256:d7e1f2ee6f2646720daed3a028835d0e26e5e93787d0424ab00f4c7b6034a170", size = 11171447, upload-time = "2026-06-17T03:27:46.367Z" },
+    { url = "https://files.pythonhosted.org/packages/41/05/c7daebbf0fc59fd6106e34e52a255727443c1db49d046f7ed0bd9dcb6e4e/pipecat_ai-1.5.0-py3-none-any.whl", hash = "sha256:6089ac7ec418b310975c9c16dd472c16f99838810aae707d669b4f6f5981cf8a", size = 11264890, upload-time = "2026-07-04T17:11:47.677Z" },
 ]
 
 [package.optional-dependencies]
+deepgram = [
+    { name = "deepgram-sdk" },
+]
+google = [
+    { name = "google-cloud-speech" },
+    { name = "google-cloud-texttospeech" },
+    { name = "google-genai" },
+]
 local = [
     { name = "pyaudio" },
 ]
@@ -3893,7 +4067,7 @@ adk = [
 ]
 livekit = [
     { name = "langsmith", extra = ["livekit"] },
-    { name = "livekit-agents", extra = ["openai", "silero", "turn-detector"] },
+    { name = "livekit-agents", extra = ["assemblyai", "cartesia", "openai", "silero", "turn-detector"] },
     { name = "livekit-plugins-google" },
 ]
 openai = [
@@ -3909,7 +4083,7 @@ pipecat = [
     { name = "langchain-openai" },
     { name = "langgraph" },
     { name = "langsmith", extra = ["pipecat"] },
-    { name = "pipecat-ai", extra = ["local", "tracing"] },
+    { name = "pipecat-ai", extra = ["deepgram", "google", "local", "tracing"] },
 ]
 
 [package.metadata]
@@ -3921,11 +4095,11 @@ requires-dist = [
     { name = "langchain-core", marker = "extra == 'pipecat'", specifier = ">=0.3" },
     { name = "langchain-openai", marker = "extra == 'pipecat'", specifier = ">=0.2" },
     { name = "langgraph", marker = "extra == 'pipecat'", specifier = ">=0.2" },
-    { name = "langsmith", specifier = ">=0.9.7" },
-    { name = "langsmith", extras = ["google-adk"], marker = "extra == 'adk'", specifier = ">=0.9.7" },
-    { name = "langsmith", extras = ["livekit"], marker = "extra == 'livekit'", specifier = ">=0.9.7" },
-    { name = "langsmith", extras = ["pipecat"], marker = "extra == 'pipecat'", specifier = ">=0.9.7" },
-    { name = "livekit-agents", extras = ["openai", "silero", "turn-detector"], marker = "extra == 'livekit'", specifier = ">=1.6.4" },
+    { name = "langsmith", editable = "../langsmith-sdk/python" },
+    { name = "langsmith", extras = ["google-adk"], marker = "extra == 'adk'", editable = "../langsmith-sdk/python" },
+    { name = "langsmith", extras = ["livekit"], marker = "extra == 'livekit'", editable = "../langsmith-sdk/python" },
+    { name = "langsmith", extras = ["pipecat"], marker = "extra == 'pipecat'", editable = "../langsmith-sdk/python" },
+    { name = "livekit-agents", extras = ["assemblyai", "cartesia", "openai", "silero", "turn-detector"], marker = "extra == 'livekit'", specifier = ">=1.6.4" },
     { name = "livekit-plugins-google", marker = "extra == 'livekit'", specifier = ">=1.6.4" },
     { name = "numpy", specifier = ">=1.26" },
     { name = "openai", marker = "extra == 'openai'", specifier = ">=1.50" },
@@ -3933,7 +4107,7 @@ requires-dist = [
     { name = "openai-agents", extras = ["realtime"], marker = "extra == 'openai-agents'", specifier = ">=0.2" },
     { name = "opentelemetry-exporter-otlp-proto-http", specifier = ">=1.27" },
     { name = "opentelemetry-sdk", specifier = ">=1.27" },
-    { name = "pipecat-ai", extras = ["openai", "local", "tracing"], marker = "extra == 'pipecat'", specifier = ">=1.4" },
+    { name = "pipecat-ai", extras = ["deepgram", "google", "local", "openai", "tracing"], marker = "extra == 'pipecat'", specifier = ">=1.4" },
     { name = "pydantic", specifier = ">=2" },
     { name = "python-dotenv", specifier = ">=1.0" },
     { name = "scipy", specifier = ">=1.13" },
