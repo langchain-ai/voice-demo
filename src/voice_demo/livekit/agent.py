@@ -1,7 +1,8 @@
 """LiveKit voice agent (STT → LLM → TTS cascade), traced via OpenTelemetry.
 
-This is the classic cascade pipeline: OpenAI STT → OpenAI LLM → OpenAI TTS, with
-Silero VAD and multilingual turn detection. For the speech-to-speech variants
+This is the classic cascade pipeline: AssemblyAI STT → OpenAI LLM → Cartesia
+TTS, with Silero VAD and multilingual turn detection. For the speech-to-speech
+variants
 that collapse the whole pipeline into one realtime model, see
 `livekit_with_openai_realtime/` and `livekit_with_gemini_live/` — they share this
 file's tracing wiring, agent, and console entrypoint, differing only in how the
@@ -33,8 +34,13 @@ import sys
 from pathlib import Path
 
 LLM_MODEL = os.getenv("LIVEKIT_LLM_MODEL", "gpt-4o-mini")
-STT_MODEL = os.getenv("LIVEKIT_STT_MODEL", "gpt-4o-mini-transcribe")
-TTS_VOICE = os.getenv("LIVEKIT_TTS_VOICE", "alloy")
+# STT is AssemblyAI, TTS is Cartesia. All three are optional — left unset, each
+# plugin picks its own default: AssemblyAI its default streaming model, Cartesia
+# its default Sonic voice/model. TTS_VOICE is a Cartesia voice id; TTS_MODEL its
+# synthesis model (e.g. "sonic-2").
+STT_MODEL = os.getenv("LIVEKIT_STT_MODEL") or None
+TTS_VOICE = os.getenv("LIVEKIT_TTS_VOICE") or None
+TTS_MODEL = os.getenv("LIVEKIT_TTS_MODEL") or None
 
 # The conversation's thread id is set once per session via the SDK's
 # ``set_thread_id`` (a ContextVar) in the entrypoint; the processor reads it per
@@ -60,7 +66,19 @@ def run(project_name: str) -> None:
     """
     if not os.environ.get("OPENAI_API_KEY"):
         print(
-            "OPENAI_API_KEY is not set (this LiveKit mode needs it for STT/LLM/TTS).",
+            "OPENAI_API_KEY is not set (this LiveKit mode needs it for the LLM stage).",
+            file=sys.stderr,
+        )
+        sys.exit(1)
+    if not os.environ.get("ASSEMBLYAI_API_KEY"):
+        print(
+            "ASSEMBLYAI_API_KEY is not set (this LiveKit mode needs it for STT).",
+            file=sys.stderr,
+        )
+        sys.exit(1)
+    if not os.environ.get("CARTESIA_API_KEY"):
+        print(
+            "CARTESIA_API_KEY is not set (this LiveKit mode needs it for Cartesia TTS).",
             file=sys.stderr,
         )
         sys.exit(1)
@@ -104,16 +122,30 @@ def run(project_name: str) -> None:
 
     # Plugins must be imported on the main thread (LiveKit registers them at
     # import time), so none of these can be deferred into the job entrypoint.
+    from livekit.plugins import assemblyai
+    from livekit.plugins import cartesia
     from livekit.plugins import openai as lk_openai
     from livekit.plugins import silero
     from livekit.plugins.turn_detector.multilingual import MultilingualModel
 
     def _build_session() -> AgentSession:
-        """The STT → LLM → TTS cascade with VAD and turn detection."""
+        """The STT → LLM → TTS cascade with VAD and turn detection.
+
+        STT is AssemblyAI, TTS is Cartesia; the LLM stage stays OpenAI. Each
+        plugin reads its own key from the environment (ASSEMBLYAI_API_KEY /
+        CARTESIA_API_KEY / OPENAI_API_KEY), all checked at startup above.
+        """
+        # Only pass model/voice when explicitly overridden; otherwise let each
+        # plugin fall back to its own validated default.
+        tts_kwargs = {}
+        if TTS_MODEL:
+            tts_kwargs["model"] = TTS_MODEL
+        if TTS_VOICE:
+            tts_kwargs["voice"] = TTS_VOICE
         return AgentSession(
-            stt=lk_openai.STT(model=STT_MODEL),
+            stt=assemblyai.STT(model=STT_MODEL) if STT_MODEL else assemblyai.STT(),
             llm=lk_openai.LLM(model=LLM_MODEL, temperature=0.3),
-            tts=lk_openai.TTS(model="tts-1", voice=TTS_VOICE),
+            tts=cartesia.TTS(**tts_kwargs),
             vad=silero.VAD.load(),
             # livekit-agents >=1.6 replaced the top-level ``turn_detection`` arg
             # with ``turn_handling=TurnHandlingOptions(...)``.

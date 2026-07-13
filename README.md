@@ -11,11 +11,13 @@ This repo implements a variety of voice agent backends across different framewor
 | `openai` | OpenAI Realtime, raw WebSocket |
 | `openai-agents` | OpenAI Realtime, via the Agents SDK |
 | `adk` | Google ADK Live (Gemini) |
-| `livekit` | LiveKit STT → LLM → TTS cascade |
+| `livekit` | LiveKit STT → LLM → TTS cascade (AssemblyAI STT · OpenAI LLM · Cartesia TTS) |
 | `livekit-with-openai-realtime` | LiveKit, LLM slot swapped for OpenAI Realtime (speech-to-speech) |
 | `livekit-with-gemini-live` | LiveKit, LLM slot swapped for Gemini Live (speech-to-speech) |
-| `pipecat` | Pipecat STT / LLM / TTS (stock OpenAI services) |
+| `pipecat` | Pipecat STT / LLM / TTS (Deepgram STT + Aura TTS · OpenAI LLM) |
 | `pipecat-with-langgraph` | Pipecat, LLM stage is an in-process LangGraph agent |
+| `pipecat-with-openai-realtime` | Pipecat, STT/LLM/TTS cascade swapped for OpenAI Realtime (speech-to-speech) |
+| `pipecat-with-gemini-live` | Pipecat, STT/LLM/TTS cascade swapped for Gemini Live (speech-to-speech) |
 
 Each backend lives in its own self-contained folder under `src/voice_demo/`
 (the `livekit*` and `pipecat*` folders repeat some framework boilerplate on
@@ -46,6 +48,8 @@ uv run voice-demo --backend livekit-with-openai-realtime
 uv run voice-demo --backend livekit-with-gemini-live
 uv run voice-demo --backend pipecat
 uv run voice-demo --backend pipecat-with-langgraph
+uv run voice-demo --backend pipecat-with-openai-realtime
+uv run voice-demo --backend pipecat-with-gemini-live
 ```
 
 Each backend opens your local mic and speaker.

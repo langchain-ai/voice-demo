@@ -11,6 +11,8 @@ sit next to each other in the LangSmith UI:
     voice-demo-livekit-with-gemini-live
     voice-demo-pipecat
     voice-demo-pipecat-with-langgraph
+    voice-demo-pipecat-with-openai-realtime
+    voice-demo-pipecat-with-gemini-live
 
 There are two tracing paths (see each backend's own module docstring for why):
 
@@ -40,6 +42,8 @@ Backend = Literal[
     "livekit-with-gemini-live",
     "pipecat",
     "pipecat-with-langgraph",
+    "pipecat-with-openai-realtime",
+    "pipecat-with-gemini-live",
 ]
 
 

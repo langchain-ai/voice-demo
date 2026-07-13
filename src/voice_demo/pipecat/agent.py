@@ -1,14 +1,16 @@
 """Pipecat voice agent, traced via OpenTelemetry into LangSmith.
 
-This is the *minimal* Pipecat setup: Pipecat's own `OpenAILLMService` fills the
-LLM slot, with a native Pipecat function tool for the weather lookup. For the
-variant that swaps the LLM stage for an in-process LangGraph "brain" (so every
-graph node nests under the `llm` span), see `pipecat_with_langgraph/`.
+This is the *minimal* Pipecat setup: Deepgram fills the STT and TTS slots
+(`DeepgramSTTService` + `DeepgramTTSService`/Aura) and Pipecat's own
+`OpenAILLMService` fills the LLM slot, with a native Pipecat function tool for
+the weather lookup. For the variant that swaps the LLM stage for an in-process
+LangGraph "brain" (so every graph node nests under the `llm` span), see
+`pipecat_with_langgraph/`.
 
 Why OTEL and not SDK: Pipecat runs the whole STT → LLM → TTS pipeline in-process
 and emits OTel spans for it natively (a `conversation` root, a `turn` span per
 exchange, and `stt` / `llm` / `tts` child spans), gated behind
-`PipelineTask(enable_tracing=True, enable_turn_tracking=True)`. The framework
+`PipelineWorker(enable_tracing=True, enable_turn_tracking=True)`. The framework
 does the hard work; we just call `configure_pipecat` (the LangSmith voice
 integration, `langsmith.integrations.pipecat`), which installs a span processor
 that rewrites those spans into the `gen_ai.*` / `langsmith.*` namespaces
@@ -59,8 +61,9 @@ import sys
 import uuid
 
 LLM_MODEL = os.getenv("PIPECAT_LLM_MODEL", "gpt-4o-mini")
-STT_MODEL = os.getenv("PIPECAT_STT_MODEL", "gpt-4o-mini-transcribe")
-TTS_VOICE = os.getenv("PIPECAT_TTS_VOICE", "alloy")
+# STT/TTS are Deepgram: a Nova STT model and an Aura TTS voice.
+STT_MODEL = os.getenv("PIPECAT_STT_MODEL", "nova-3-general")
+TTS_VOICE = os.getenv("PIPECAT_TTS_VOICE", "aura-2-helena-en")
 
 # Per-track bytes buffered before the AudioBufferProcessor emits an `on_audio_data`
 # event. Non-zero so audio streams in periodically and is accumulated before the
@@ -76,7 +79,13 @@ async def run(project_name: str) -> None:
     """
     if not os.environ.get("OPENAI_API_KEY"):
         print(
-            "OPENAI_API_KEY is not set (Pipecat's STT/LLM/TTS need it).",
+            "OPENAI_API_KEY is not set (Pipecat's LLM stage needs it).",
+            file=sys.stderr,
+        )
+        sys.exit(1)
+    if not os.environ.get("DEEPGRAM_API_KEY"):
+        print(
+            "DEEPGRAM_API_KEY is not set (Pipecat's Deepgram STT/TTS need it).",
             file=sys.stderr,
         )
         sys.exit(1)
@@ -86,18 +95,18 @@ async def run(project_name: str) -> None:
     from pipecat.audio.vad.silero import SileroVADAnalyzer
     from pipecat.frames.frames import TTSSpeakFrame
     from pipecat.pipeline.pipeline import Pipeline
-    from pipecat.pipeline.runner import PipelineRunner
-    from pipecat.pipeline.task import PipelineParams, PipelineTask
+    from pipecat.pipeline.worker import PipelineParams, PipelineWorker
+    from pipecat.workers.runner import WorkerRunner
     from pipecat.processors.aggregators.llm_context import LLMContext
     from pipecat.processors.aggregators.llm_response_universal import (
         LLMContextAggregatorPair,
         LLMUserAggregatorParams,
     )
     from pipecat.processors.audio.audio_buffer_processor import AudioBufferProcessor
+    from pipecat.services.deepgram.stt import DeepgramSTTService
+    from pipecat.services.deepgram.tts import DeepgramTTSService
     from pipecat.services.llm_service import FunctionCallParams
     from pipecat.services.openai.llm import OpenAILLMService
-    from pipecat.services.openai.stt import OpenAISTTService
-    from pipecat.services.openai.tts import OpenAITTSService
     from pipecat.transports.local.audio import (
         LocalAudioTransport,
         LocalAudioTransportParams,
@@ -144,11 +153,21 @@ async def run(project_name: str) -> None:
         LocalAudioTransportParams(audio_in_enabled=True, audio_out_enabled=True)
     )
 
-    stt = OpenAISTTService(settings=OpenAISTTService.Settings(model=STT_MODEL))
+    # Deepgram STT/TTS take their API key explicitly (no env-var fallback); the
+    # startup check above guarantees it is present. Deepgram Aura treats the
+    # voice name as the model, so the TTS voice fully picks the speaker.
+    deepgram_api_key = os.environ["DEEPGRAM_API_KEY"]
+    stt = DeepgramSTTService(
+        api_key=deepgram_api_key,
+        settings=DeepgramSTTService.Settings(model=STT_MODEL),
+    )
     llm = OpenAILLMService(
         settings=OpenAILLMService.Settings(model=LLM_MODEL, temperature=0.3)
     )
-    tts = OpenAITTSService(settings=OpenAITTSService.Settings(voice=TTS_VOICE))
+    tts = DeepgramTTSService(
+        api_key=deepgram_api_key,
+        settings=DeepgramTTSService.Settings(voice=TTS_VOICE),
+    )
 
     # A native Pipecat function tool. The handler receives FunctionCallParams and
     # returns its result through result_callback. Because the schema carries the
@@ -203,7 +222,7 @@ async def run(project_name: str) -> None:
         ]
     )
 
-    task = PipelineTask(
+    worker = PipelineWorker(
         pipeline,
         params=PipelineParams(enable_metrics=True),
         enable_tracing=True,
@@ -216,12 +235,13 @@ async def run(project_name: str) -> None:
     # the assistant's opening message so the model has context on the next turn.
     # Mirrors the LiveKit backend's session.say(GREETING). It adds no `llm` span,
     # so the conversation root aggregates from the first real user turn onward.
-    await task.queue_frames([TTSSpeakFrame(text=GREETING, append_to_context=True)])
+    await worker.queue_frames([TTSSpeakFrame(text=GREETING, append_to_context=True)])
 
     # Begin recording. start_recording() only flips a flag and resets buffers (no
     # sample-rate dependency); the StartFrame sets the rate before any audio flows.
     await audiobuffer.start_recording()
 
     logger.info("[pipecat] connected — say something (Ctrl-C to quit).")
-    runner = PipelineRunner(handle_sigint=False if sys.platform == "win32" else True)
-    await runner.run(task)
+    runner = WorkerRunner(handle_sigint=False if sys.platform == "win32" else True)
+    await runner.add_workers(worker)
+    await runner.run()
