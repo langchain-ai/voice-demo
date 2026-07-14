@@ -8,7 +8,7 @@ dependencies = [
     "sounddevice>=0.4",
     "numpy>=1.26",
     "scipy>=1.13",
-    "langsmith>=0.9.7",
+    "langsmith>=0.10.2",
     "httpx>=0.27",
     "pydantic>=2",
     "opentelemetry-sdk>=1.27",
@@ -27,12 +27,12 @@ openai-agents = [
 adk = [
     "google-adk>=2.0",
     "google-genai>=1.75",
-    "langsmith[google-adk]>=0.9.7",
+    "langsmith[google-adk]>=0.10.2",
 ]
 livekit = [
     # Covers all three LiveKit backends (cascade + the two S2S variants).
     # The LangSmith LiveKit integration (span processor + its deps, e.g. cachetools).
-    "langsmith[livekit]>=0.9.7",
+    "langsmith[livekit]>=0.10.2",
     # The agent is LiveKit-native (no LangChain brain): the cascade backend uses
     # assemblyai = STT and cartesia = TTS, openai = the LLM stage (and the
     # OpenAI Realtime model for the S2S variant); silero/turn-detector = VAD +
@@ -46,7 +46,7 @@ pipecat = [
     # Covers all four Pipecat backends: stock OpenAI LLM, the LangGraph variant,
     # OpenAI Realtime (S2S), and Gemini Live (S2S).
     # The LangSmith Pipecat integration (span processor + its deps, e.g. cachetools).
-    "langsmith[pipecat]>=0.9.7",
+    "langsmith[pipecat]>=0.10.2",
     # deepgram: STT + Aura TTS for the plain cascade backend · openai: the LLM
     # stage + OpenAI Realtime services · google: Gemini Live (pulls in
     # google-genai) · local: LocalAudioTransport (mic/speaker) · tracing: the
@@ -61,10 +61,6 @@ pipecat = [
     "langchain-openai>=0.2",
     "langchain-core>=0.3",
 ]
-
-[tool.uv.sources]
-# Use the local langsmith-sdk checkout (editable) instead of the PyPI release.
-langsmith = { path = "../langsmith-sdk/python", editable = true }
 
 [project.scripts]
 voice-demo = "voice_demo.cli:main"
