@@ -1,0 +1,32 @@
+pyproject.toml
+  s_bab383efea861c::t_972638889fb636 30
+  s_bab383efea861c::t_3a1fc5fccc70a2 35
+  s_bab383efea861c::t_380d5103e96958 49
+  s_bab383efea861c::t_3be5c81be8e556 11
+uv.lock
+  s_bab383efea861c::t_f11afc81ffd31a 1400-1401,1418-1421,3997-4000
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.13",
+  "base_commit_sha": "a104f2dcc9efc9485685cc7da205ca0f3b1b410c",
+  "prompts": {},
+  "humans": {
+    "h_3a9d271fbf3886": {
+      "author": "Caroline di Vittorio <43390382+carolinedivittorio@users.noreply.github.com>"
+    },
+    "h_fd2bd7aaf435a7": {
+      "author": "open-swe[bot] <open-swe@users.noreply.github.com>"
+    }
+  },
+  "sessions": {
+    "s_bab383efea861c": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "67a2c321-3022-4062-9024-c8cef5e0b271",
+        "model": "claude-opus-4-8"
+      },
+      "human_author": "Caroline di Vittorio <43390382+carolinedivittorio@users.noreply.github.com>"
+    }
+  }
+}
