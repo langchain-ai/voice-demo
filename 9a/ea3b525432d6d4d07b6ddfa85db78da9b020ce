@@ -1,0 +1,46 @@
+uv.lock
+  s_bab383efea861c::t_f11afc81ffd31a 1400,1418,1420,3997-4000
+pyproject.toml
+  s_b119811246d649::t_3bf5dfb671316e 30
+  s_b119811246d649::t_1e8a72498630b3 11
+  s_b119811246d649::t_fe38bb77bb0f9b 49
+  s_b119811246d649::t_4e8cba77c24a27 35
+src/voice_demo/livekit_with_gemini_live/agent.py
+  s_e5a3616525a73a::t_f1a2aa4c441449 62,64
+  s_e5a3616525a73a::t_4908ee707f782e 105-106
+src/voice_demo/livekit_with_openai_realtime/agent.py
+  s_e5a3616525a73a::t_82bbe60b03994c 62,64
+  s_e5a3616525a73a::t_f1aeccf59a3f03 107-108
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.13",
+  "base_commit_sha": "9aea3b525432d6d4d07b6ddfa85db78da9b020ce",
+  "prompts": {},
+  "sessions": {
+    "s_b119811246d649": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "583f7abf-a16f-4df3-9d72-b3b8ceccba83",
+        "model": "claude-opus-4-8"
+      },
+      "human_author": null
+    },
+    "s_bab383efea861c": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "67a2c321-3022-4062-9024-c8cef5e0b271",
+        "model": "claude-opus-4-8"
+      },
+      "human_author": "Caroline di Vittorio <43390382+carolinedivittorio@users.noreply.github.com>"
+    },
+    "s_e5a3616525a73a": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "c9a6110b-135f-4f8a-98b8-970e91e5e2a3",
+        "model": "claude-opus-4-8"
+      },
+      "human_author": null
+    }
+  }
+}
