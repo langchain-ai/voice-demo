@@ -1,0 +1,23 @@
+src/voice_demo/livekit_with_openai_realtime/agent.py
+  s_e5a3616525a73a::t_82bbe60b03994c 62-65,67
+  s_e5a3616525a73a::t_f1aeccf59a3f03 110-114
+src/voice_demo/livekit_with_gemini_live/agent.py
+  s_e5a3616525a73a::t_f1a2aa4c441449 62-65,67
+  s_e5a3616525a73a::t_4908ee707f782e 108-112
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.13",
+  "base_commit_sha": "0b7ba107e563e6b01830343001213db3deb2026b",
+  "prompts": {},
+  "sessions": {
+    "s_e5a3616525a73a": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "c9a6110b-135f-4f8a-98b8-970e91e5e2a3",
+        "model": "claude-opus-4-8"
+      },
+      "human_author": "Caroline di Vittorio <43390382+carolinedivittorio@users.noreply.github.com>"
+    }
+  }
+}
