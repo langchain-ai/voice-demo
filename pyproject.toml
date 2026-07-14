@@ -57,7 +57,7 @@ pipecat = [
     # agent (create_agent) over LangGraph. The plain pipecat backend needs none
     # of these.
     "langgraph>=0.2",
-    "langchain>=1.0",
+    "langchain>=1.3.9",
     "langchain-openai>=0.2",
     "langchain-core>=0.3",
 ]
