@@ -25,7 +25,7 @@ openai-agents = [
     "openai>=1.50",
 ]
 adk = [
-    "google-adk>=2.0",
+    "google-adk>=2.3.0",
     "google-genai>=1.75",
     "langsmith[google-adk]>=0.10.2",
 ]
