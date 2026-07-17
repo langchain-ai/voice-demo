@@ -1,0 +1,48 @@
+pyproject.toml
+  s_2d2b787a12834a::t_6d0cc1aa732b3b 49
+uv.lock
+  s_bab383efea861c::t_f11afc81ffd31a 1400,1418,1420,3997-4000
+src/voice_demo/pipecat_with_openai_realtime/agent.py
+  s_1d9c66e2caf3bc::t_93f57a6049e017 216-220
+  s_1d9c66e2caf3bc::t_dfe0f732b10a4b 152-162
+  s_1d9c66e2caf3bc::t_37c7bba4f30b1a 93,95
+src/voice_demo/pipecat_with_gemini_live/agent.py
+  s_1d9c66e2caf3bc::t_d9aaa000246667 214-218
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.14",
+  "base_commit_sha": "c19e13980e965f0d99770bcf4f0fc7ff17a4c6ef",
+  "prompts": {},
+  "humans": {
+    "h_3a9d271fbf3886": {
+      "author": "Caroline di Vittorio <43390382+carolinedivittorio@users.noreply.github.com>"
+    }
+  },
+  "sessions": {
+    "s_1d9c66e2caf3bc": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "b188209a-ea3b-47fe-a82d-52838920201b",
+        "model": "claude-opus-4-8"
+      },
+      "human_author": "Caroline di Vittorio <43390382+carolinedivittorio@users.noreply.github.com>"
+    },
+    "s_2d2b787a12834a": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "7e172fdd-7032-4502-a8f5-553896ca8953",
+        "model": "claude-opus-4-8"
+      },
+      "human_author": "Caroline di Vittorio <43390382+carolinedivittorio@users.noreply.github.com>"
+    },
+    "s_bab383efea861c": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "67a2c321-3022-4062-9024-c8cef5e0b271",
+        "model": "claude-opus-4-8"
+      },
+      "human_author": "Caroline di Vittorio <43390382+carolinedivittorio@users.noreply.github.com>"
+    }
+  }
+}
