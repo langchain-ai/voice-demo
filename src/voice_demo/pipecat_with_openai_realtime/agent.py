@@ -90,7 +90,9 @@ async def run(project_name: str) -> None:
     from pipecat.services.llm_service import FunctionCallParams
     from pipecat.services.openai.realtime.events import (
         AudioConfiguration,
+        AudioInput,
         AudioOutput,
+        InputAudioTranscription,
         SessionProperties,
     )
     from pipecat.services.openai.realtime.llm import OpenAIRealtimeLLMService
@@ -147,7 +149,17 @@ async def run(project_name: str) -> None:
         settings=OpenAIRealtimeLLMService.Settings(
             model=REALTIME_MODEL,
             session_properties=SessionProperties(
-                audio=AudioConfiguration(output=AudioOutput(voice=REALTIME_VOICE)),
+                # Enable input-audio transcription: OpenAI Realtime sends the
+                # model raw audio and, by default, produces NO user-side text.
+                # Without this, the user's turns never appear in the context
+                # aggregator, so `on_user_turn_message_added` never fires and the
+                # trace shows only the assistant side. Turning it on makes OpenAI
+                # emit transcription events, which Pipecat surfaces to the
+                # aggregator and the LangSmith processor folds into the trace.
+                audio=AudioConfiguration(
+                    input=AudioInput(transcription=InputAudioTranscription()),
+                    output=AudioOutput(voice=REALTIME_VOICE),
+                ),
             ),
         ),
     )
@@ -201,6 +213,11 @@ async def run(project_name: str) -> None:
     audiobuffer = AudioBufferProcessor(num_channels=2, buffer_size=AUDIO_BUFFER_SIZE)
     if span_processor is not None:
         span_processor.attach_audio_buffer(audiobuffer, conversation_id)
+        # A realtime service delivers the user's finalized text through the user
+        # context aggregator (on_user_turn_message_added), not an OTel span, so
+        # register it here — otherwise the user turns never reach the trace. This
+        # folds them onto the root and into each llm response's input history.
+        span_processor.instrument_user_aggregator(context_aggregator, conversation_id)
 
     # No stt/tts stages: the realtime `llm` sits directly between the transport's
     # mic in and speaker out.

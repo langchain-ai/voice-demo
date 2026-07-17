@@ -211,6 +211,11 @@ async def run(project_name: str) -> None:
     audiobuffer = AudioBufferProcessor(num_channels=2, buffer_size=AUDIO_BUFFER_SIZE)
     if span_processor is not None:
         span_processor.attach_audio_buffer(audiobuffer, conversation_id)
+        # Gemini Live delivers the user's finalized text through the user context
+        # aggregator (on_user_turn_message_added), not an OTel span, so register
+        # it here — otherwise the user turns never reach the trace. This folds
+        # them onto the root and into each llm response's input history.
+        span_processor.instrument_user_aggregator(context_aggregator, conversation_id)
 
     # No stt/tts stages: the Gemini Live `llm` sits directly between the
     # transport's mic in and speaker out.
