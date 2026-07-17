@@ -1,0 +1,28 @@
+src/voice_demo/pipecat_with_openai_realtime/agent.py
+  s_1d9c66e2caf3bc::t_37c7bba4f30b1a 93,95
+  s_1d9c66e2caf3bc::t_dfe0f732b10a4b 152-162
+  s_1d9c66e2caf3bc::t_93f57a6049e017 216-220
+src/voice_demo/pipecat_with_gemini_live/agent.py
+  s_1d9c66e2caf3bc::t_d9aaa000246667 214-218
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.14",
+  "base_commit_sha": "e441f45d5040a08c93d361e990671cf9a2c6c0a7",
+  "prompts": {},
+  "humans": {
+    "h_3a9d271fbf3886": {
+      "author": "Caroline di Vittorio <43390382+carolinedivittorio@users.noreply.github.com>"
+    }
+  },
+  "sessions": {
+    "s_1d9c66e2caf3bc": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "b188209a-ea3b-47fe-a82d-52838920201b",
+        "model": "claude-opus-4-8"
+      },
+      "human_author": "Caroline di Vittorio <43390382+carolinedivittorio@users.noreply.github.com>"
+    }
+  }
+}
