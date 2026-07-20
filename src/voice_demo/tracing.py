@@ -7,6 +7,7 @@ sit next to each other in the LangSmith UI:
     voice-demo-openai-agents
     voice-demo-adk
     voice-demo-livekit
+    voice-demo-livekit-with-langgraph
     voice-demo-livekit-with-openai-realtime
     voice-demo-livekit-with-gemini-live
     voice-demo-pipecat
@@ -38,6 +39,7 @@ Backend = Literal[
     "openai-agents",
     "adk",
     "livekit",
+    "livekit-with-langgraph",
     "livekit-with-openai-realtime",
     "livekit-with-gemini-live",
     "pipecat",
@@ -79,14 +81,19 @@ def configure(backend: Backend, project: str | None = None) -> str:
     # endpoint + auth headers from the standard LANGSMITH_* config above. (ADK
     # and OpenAI are SDK-traced via RunTree and likewise need only the API key.)
 
-    if backend == "pipecat-with-langgraph":
-        # This backend runs a LangGraph agent as its LLM "brain". Put the
+    if backend in ("livekit-with-langgraph", "pipecat-with-langgraph"):
+        # These backends run a LangGraph agent as their LLM "brain". Put the
         # LangSmith SDK in OTel mode so the langchain/langgraph runs emit through
         # the shared global TracerProvider instead of posting straight to the
         # LangSmith API — so they inherit the active OTel context and nest UNDER
-        # Pipecat's `llm` span rather than forming a separate top-level trace.
-        # (Every other backend traces natively — via RunTree, or via a framework
-        # OTel span it doesn't feed langchain runs into — so none needs this.)
+        # the framework's `llm` span (LiveKit's `llm_node` / Pipecat's `llm`)
+        # rather than forming a separate top-level trace. The framework
+        # integration (`configure_livekit` / `configure_pipecat`) has already
+        # registered that global provider with the LangSmith span processor, so
+        # the graph's spans land in the same project and trace as the voice
+        # pipeline. (Every other backend traces natively — via RunTree, or via a
+        # framework OTel span it doesn't feed langchain runs into — so none needs
+        # this.)
         os.environ.setdefault("LANGSMITH_TRACING_MODE", "otel")
 
     print(f"[voice-demo] LangSmith project: {project_name}", file=sys.stderr)
