@@ -75,6 +75,7 @@ def main() -> None:
             "openai-agents",
             "adk",
             "livekit",
+            "livekit-with-langgraph",
             "livekit-with-openai-realtime",
             "livekit-with-gemini-live",
             "pipecat",
@@ -127,6 +128,15 @@ def main() -> None:
         from .livekit.agent import run as run_livekit
 
         run_livekit(project_name=project)
+
+    elif args.backend == "livekit-with-langgraph":
+        # Same LiveKit console flow as `livekit`, but the Agent's `llm_node` is
+        # overridden to run an in-process LangGraph graph. LiveKit owns the
+        # ChatContext (truthful, barge-in-truncated transcript); the graph owns
+        # the control flow (the ReAct tool loop) and keeps no transcript.
+        from .livekit_with_langgraph.agent import run as run_livekit_langgraph
+
+        run_livekit_langgraph(project_name=project)
 
     elif args.backend == "livekit-with-openai-realtime":
         # Same LiveKit console flow, but the session's LLM slot is a
