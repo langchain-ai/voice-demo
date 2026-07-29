@@ -1,6 +1,6 @@
 """Entry point: `voice-demo --backend <name>`.
 
-Backends: openai · openai-agents · adk · livekit · livekit-with-openai-realtime ·
+Backends: openai · openai-agents · gemini · adk · livekit · livekit-with-openai-realtime ·
 livekit-with-gemini-live · pipecat · pipecat-with-langgraph ·
 pipecat-with-openai-realtime · pipecat-with-gemini-live. The
 `*-with-openai-realtime` / `*-with-gemini-live` / `livekit-with-*` backends swap
@@ -43,8 +43,8 @@ for _candidate in (_HERE / ".env", _HERE.parent.parent / ".env"):
         load_dotenv(_candidate, override=False)
         break
 
-# Both SDK backends run the local mic + speaker at 24 kHz (ADK resamples to
-# 16 kHz internally before sending to Gemini).
+# All direct SDK backends run the local mic + speaker at 24 kHz (Gemini and ADK
+# resample to 16 kHz internally before sending audio to Gemini Live).
 _CONSOLE_SAMPLE_RATE = 24_000
 
 
@@ -73,6 +73,7 @@ def main() -> None:
         choices=(
             "openai",
             "openai-agents",
+            "gemini",
             "adk",
             "livekit",
             "livekit-with-langgraph",
@@ -116,6 +117,12 @@ def main() -> None:
         from .openai_agents.agent import run as run_openai_agents
 
         _run_console_backend(run_openai_agents, project)
+
+    elif args.backend == "gemini":
+        # Gemini Live over google-genai's raw WebSocket session, without ADK.
+        from .gemini.agent import run as run_gemini
+
+        _run_console_backend(run_gemini, project)
 
     elif args.backend == "adk":
         from .adk.agent import run as run_adk

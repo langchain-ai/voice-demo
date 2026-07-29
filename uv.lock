@@ -3964,6 +3964,9 @@ adk = [
     { name = "google-genai" },
     { name = "langsmith", extra = ["google-adk"] },
 ]
+gemini = [
+    { name = "google-genai" },
+]
 livekit = [
     { name = "langchain" },
     { name = "langchain-core" },
@@ -3993,6 +3996,7 @@ pipecat = [
 requires-dist = [
     { name = "google-adk", marker = "extra == 'adk'", specifier = ">=2.3.0" },
     { name = "google-genai", marker = "extra == 'adk'", specifier = ">=1.75" },
+    { name = "google-genai", marker = "extra == 'gemini'", specifier = ">=1.75" },
     { name = "httpx", specifier = ">=0.27" },
     { name = "langchain", marker = "extra == 'livekit'", specifier = ">=1.3.9" },
     { name = "langchain", marker = "extra == 'pipecat'", specifier = ">=1.3.9" },
@@ -4020,7 +4024,7 @@ requires-dist = [
     { name = "scipy", specifier = ">=1.13" },
     { name = "sounddevice", specifier = ">=0.4" },
 ]
-provides-extras = ["openai", "openai-agents", "adk", "livekit", "pipecat"]
+provides-extras = ["openai", "openai-agents", "gemini", "adk", "livekit", "pipecat"]
 
 [[package]]
 name = "wait-for2"

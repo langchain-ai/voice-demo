@@ -10,6 +10,7 @@ This repo implements a variety of voice agent backends across different framewor
 |---|---|
 | `openai` | OpenAI Realtime, raw WebSocket |
 | `openai-agents` | OpenAI Realtime, via the Agents SDK |
+| `gemini` | Gemini Live, raw WebSocket via the official `google-genai` SDK |
 | `adk` | Google ADK Live (Gemini) |
 | `livekit` | LiveKit STT → LLM → TTS cascade (AssemblyAI STT · OpenAI LLM · Cartesia TTS) |
 | `livekit-with-langgraph` | LiveKit, but the Agent's `llm_node` runs an in-process LangGraph agent — LiveKit owns the ChatContext (barge-in-truncated transcript), LangGraph owns the control flow |
@@ -29,7 +30,7 @@ purpose, so each one reads as one complete example).
 Requires Python 3.11+ and [uv](https://docs.astral.sh/uv/).
 
 ```bash
-uv sync --all-extras     # or one backend's deps: --extra openai / openai-agents / adk / livekit / pipecat
+uv sync --all-extras     # or one backend's deps: --extra openai / openai-agents / gemini / adk / livekit / pipecat
 cp .env.example .env      # then fill in the keys below
 ```
 
@@ -43,6 +44,7 @@ Fill in `.env` with your own API keys.
 ```bash
 uv run voice-demo --backend openai
 uv run voice-demo --backend openai-agents
+uv run voice-demo --backend gemini
 uv run voice-demo --backend adk
 uv run voice-demo --backend livekit
 uv run voice-demo --backend livekit-with-langgraph
@@ -63,7 +65,7 @@ Things to try:
 - Interrupt the agent while it's talking — watch it stop and listen.
 
 Traces land in a LangSmith project per backend: `voice-demo-openai`,
-`voice-demo-adk`, `voice-demo-livekit`, and so on. Override the name with
+`voice-demo-gemini`, `voice-demo-adk`, `voice-demo-livekit`, and so on. Override the name with
 `--project`, or pass `--debug` for verbose tracing logs.
 
 ## How the tracing works
@@ -83,11 +85,11 @@ src/voice_demo/
 ├── prompts.py     # shared system prompt + greeting
 ├── weather.py     # shared Open-Meteo lookup (no API key)
 │
-├── openai/, openai_agents/, adk/           # event-stream backends (each has an agent.py)
+├── openai/, openai_agents/, gemini/, adk/  # event-stream backends (each has an agent.py)
 └── livekit*/, pipecat*/                     # in-process backends (each has an agent.py)
 ```
 
-The OpenAI and ADK backends ship no console of their own, so `cli.py` builds one
+The OpenAI, Gemini, and ADK backends ship no console of their own, so `cli.py` builds one
 and injects it through small protocols (`AudioInput` / `AudioOutput` /
 `StatusUI`). To drive the same agent from a web app or a phone call, implement
 those interfaces and inject your own — without touching the agent's event loop,

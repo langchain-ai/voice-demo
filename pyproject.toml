@@ -1,7 +1,7 @@
 [project]
 name = "voice-demo"
 version = "0.1.0"
-description = "Voice-agent backends (OpenAI Realtime, Google ADK Live, LiveKit STT/LLM/TTS cascade, LiveKit speech-to-speech with OpenAI Realtime / Gemini Live, Pipecat, Pipecat with a LangGraph brain, and Pipecat speech-to-speech with OpenAI Realtime / Gemini Live), each instrumented for LangSmith the way its framework intends."
+description = "Voice-agent backends (raw OpenAI Realtime, raw Gemini Live, Google ADK Live, LiveKit and Pipecat cascades, and framework speech-to-speech variants), each instrumented for LangSmith the way its framework intends."
 requires-python = ">=3.11"
 dependencies = [
     "python-dotenv>=1.0",
@@ -23,6 +23,10 @@ openai-agents = [
     # Same Realtime model as the `openai` extra, driven through the Agents SDK.
     "openai-agents[realtime]>=0.2",
     "openai>=1.50",
+]
+gemini = [
+    # Gemini Live over google-genai's official raw WebSocket session.
+    "google-genai>=1.75",
 ]
 adk = [
     "google-adk>=2.3.0",
