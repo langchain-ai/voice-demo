@@ -1,0 +1,29 @@
+uv.lock
+  s_bab383efea861c::t_f11afc81ffd31a 1400,1418,1420,4009-4012
+pyproject.toml
+  s_65539813b60571::t_ec99d6c0cc5819 11,34,39,60
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.18",
+  "base_commit_sha": "372a3855b567a5780d941bcb06853c1996c15cd3",
+  "prompts": {},
+  "sessions": {
+    "s_65539813b60571": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019fb55f-031d-75b0-a01e-63639ad70297",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Caroline di Vittorio <43390382+carolinedivittorio@users.noreply.github.com>"
+    },
+    "s_bab383efea861c": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "67a2c321-3022-4062-9024-c8cef5e0b271",
+        "model": "claude-opus-4-8"
+      },
+      "human_author": "Caroline di Vittorio <43390382+carolinedivittorio@users.noreply.github.com>"
+    }
+  }
+}
