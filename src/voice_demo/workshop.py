@@ -159,24 +159,19 @@ async def run_openai_realtime_agent(
     project: str,
     model: str,
     thread_id: str,
+    trace_realtime,
     sample_rate: int = 24_000,
 ) -> None:
     import asyncio
 
     from openai import AsyncOpenAI
-    from langsmith.integrations.openai_realtime import wrap_realtime
 
     client = AsyncOpenAI()
     audio_in, audio_out, ui = openai_console_io(sample_rate)
     mic_task = None
 
-    async with client.realtime.connect(model=model) as raw, wrap_realtime(
+    async with client.realtime.connect(model=model) as raw, trace_realtime(
         raw,
-        thread_id=thread_id,
-        sample_rate=sample_rate,
-        project_name=project,
-        tags=["workshop", "openai-realtime"],
-        metadata={"model": model},
         is_agent_speaking=lambda: audio_out.buffered_bytes() > 0,
     ) as connection:
         await connection.session.update(session=session)
