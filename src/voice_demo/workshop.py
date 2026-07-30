@@ -108,6 +108,112 @@ def console_io(sample_rate: int = 24_000):
 openai_console_io = console_io
 
 
+def run_livekit_console(server) -> None:
+    import sys
+
+    from livekit import agents
+
+    sys.argv = [sys.argv[0], "console", "--record"]
+    agents.cli.run_app(server)
+
+
+async def run_google_adk_live_session(
+    *,
+    runner,
+    adk_session,
+    queue,
+    tracing_plugin,
+    audio_in,
+    audio_out,
+    ui,
+    user_id: str,
+    recv_sample_rate: int = 24_000,
+    send_sample_rate: int = 16_000,
+) -> None:
+    import asyncio
+
+    from google.adk.agents.run_config import RunConfig, StreamingMode
+    from google.genai import types as genai_types
+
+    from .adk.events import LiveEvent
+    from .audio import resample_pcm16
+    from .console import frame_level
+
+    audio_out.set_played_callback(tracing_plugin.record_agent_audio)
+    audio_in.start()
+    audio_out.start()
+    ui.set_state("listening")
+    stop = asyncio.Event()
+
+    async def pump_mic() -> None:
+        async for frame in audio_in.frames():
+            queue.send_realtime(
+                genai_types.Blob(
+                    data=resample_pcm16(frame, recv_sample_rate, send_sample_rate),
+                    mime_type=f"audio/pcm;rate={send_sample_rate}",
+                )
+            )
+            ui.update_level(frame_level(frame))
+            tracing_plugin.record_user_audio(frame)
+
+    async def pump_responses() -> None:
+        run_config = RunConfig(
+            response_modalities=["AUDIO"],
+            streaming_mode=StreamingMode.BIDI,
+            input_audio_transcription=genai_types.AudioTranscriptionConfig(),
+            output_audio_transcription=genai_types.AudioTranscriptionConfig(),
+            realtime_input_config=genai_types.RealtimeInputConfig(
+                automatic_activity_detection=genai_types.AutomaticActivityDetection(
+                    start_of_speech_sensitivity=genai_types.StartSensitivity.START_SENSITIVITY_HIGH,
+                    end_of_speech_sensitivity=genai_types.EndSensitivity.END_SENSITIVITY_LOW,
+                    prefix_padding_ms=200,
+                    silence_duration_ms=800,
+                ),
+            ),
+        )
+        try:
+            async for raw_event in runner.run_live(
+                user_id=user_id,
+                session_id=adk_session.id,
+                live_request_queue=queue,
+                run_config=run_config,
+            ):
+                event = LiveEvent(raw_event)
+                if event.interrupted:
+                    audio_out.clear()
+                    ui.set_state("hearing you")
+                for chunk in event.audio_chunks:
+                    audio_out.write(chunk)
+                    ui.set_state("speaking")
+                if event.final_user_transcript:
+                    ui.log(f"user : {event.final_user_transcript}")
+                if event.final_agent_transcript:
+                    ui.log(f"agent: {event.final_agent_transcript}")
+                if event.turn_complete:
+                    ui.set_state("listening")
+        except asyncio.CancelledError:
+            pass
+        except Exception as exc:
+            ui.log(f"[adk] error: {exc}")
+            stop.set()
+
+    mic_task = asyncio.create_task(pump_mic())
+    play_task = asyncio.create_task(pump_responses())
+    try:
+        await stop.wait()
+    except asyncio.CancelledError:
+        pass
+    finally:
+        queue.close()
+        for task in (mic_task, play_task):
+            task.cancel()
+        await asyncio.gather(mic_task, play_task, return_exceptions=True)
+        tracing_plugin.finalize(session_id=adk_session.id)
+        audio_in.stop()
+        audio_out.stop()
+        ui.finish()
+
+
 async def pump_openai_mic(connection, audio_in, ui) -> None:
     from .console import frame_level
 
