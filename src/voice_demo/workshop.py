@@ -94,7 +94,7 @@ async def run_worker(pipeline, conversation_id: str, before_run: Iterable = ()) 
     await runner.run()
 
 
-def openai_console_io(sample_rate: int = 24_000):
+def console_io(sample_rate: int = 24_000):
     from .audio import MicStream, SpeakerStream
     from .console import ConsoleStatus
 
@@ -103,6 +103,9 @@ def openai_console_io(sample_rate: int = 24_000):
         SpeakerStream(sample_rate=sample_rate),
         ConsoleStatus(),
     )
+
+
+openai_console_io = console_io
 
 
 async def pump_openai_mic(connection, audio_in, ui) -> None:

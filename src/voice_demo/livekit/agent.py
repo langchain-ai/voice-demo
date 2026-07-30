@@ -57,7 +57,7 @@ _audio_file_path: Path | None = None
 # "Record in production with Egress" section of the LangSmith LiveKit docs.
 
 
-def run(project_name: str) -> None:
+def run(project_name: str, configure_tracing=None) -> None:
     """Launch a LiveKit console agent (cascade). Blocks until Ctrl-C.
 
     Args:
@@ -109,10 +109,12 @@ def run(project_name: str) -> None:
     # LiveKitLangSmithSpanProcessor(...), add it to that provider, and register
     # it with LiveKit via livekit.agents.telemetry.set_tracer_provider(...).
     if os.environ.get("LANGSMITH_API_KEY"):
-        configure_livekit(
-            audio_path_provider=lambda: _audio_file_path,
-            project=project_name,
-        )
+        if configure_tracing is None:
+            configure_tracing = lambda audio_path_provider: configure_livekit(
+                audio_path_provider=audio_path_provider,
+                project=project_name,
+            )
+        configure_tracing(lambda: _audio_file_path)
         print("[livekit] LangSmith OTel tracing enabled.", file=sys.stderr)
     else:
         print(
