@@ -4,6 +4,14 @@ from __future__ import annotations
 
 from typing import Any
 
+MAX_TRANSCRIPT_CHARS = 2_000
+
+
+def append_transcript(current: str, fragment: str) -> str:
+    """Append one Gemini transcription delta, retaining the per-turn cap."""
+    remaining = MAX_TRANSCRIPT_CHARS - len(current)
+    return current if remaining <= 0 else current + fragment[:remaining]
+
 
 class LiveMessage:
     """Expose the application-relevant fields of a ``LiveServerMessage``."""
@@ -25,25 +33,34 @@ class LiveMessage:
         content = self.server_content
         return bool(content is not None and getattr(content, "turn_complete", False))
 
-    def _transcript(self, attr: str, *, final_only: bool) -> str | None:
+    def _transcription(self, attr: str) -> Any:
         content = self.server_content
-        tx = getattr(content, attr, None) if content is not None else None
+        return getattr(content, attr, None) if content is not None else None
+
+    def _transcript(self, attr: str) -> str | None:
+        tx = self._transcription(attr)
         text = getattr(tx, "text", None) if tx is not None else None
-        if not text or (final_only and not getattr(tx, "finished", False)):
-            return None
-        return str(text)
+        return str(text) if text else None
+
+    def _transcript_finished(self, attr: str) -> bool:
+        tx = self._transcription(attr)
+        return bool(tx is not None and getattr(tx, "finished", False))
 
     @property
     def user_transcript(self) -> str | None:
-        return self._transcript("input_transcription", final_only=False)
+        return self._transcript("input_transcription")
 
     @property
-    def final_user_transcript(self) -> str | None:
-        return self._transcript("input_transcription", final_only=True)
+    def user_transcript_finished(self) -> bool:
+        return self._transcript_finished("input_transcription")
 
     @property
-    def final_agent_transcript(self) -> str | None:
-        return self._transcript("output_transcription", final_only=True)
+    def agent_transcript(self) -> str | None:
+        return self._transcript("output_transcription")
+
+    @property
+    def agent_transcript_finished(self) -> bool:
+        return self._transcript_finished("output_transcription")
 
     @property
     def audio_chunks(self) -> list[bytes]:

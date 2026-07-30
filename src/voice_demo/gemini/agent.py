@@ -23,7 +23,7 @@ from langsmith.integrations.gemini_live import wrap_gemini_live
 
 from ..audio import AudioInput, AudioOutput, resample_pcm16
 from ..console import NullUI, StatusUI, frame_level
-from .events import LiveMessage
+from .events import LiveMessage, append_transcript
 from .tools import execute_tool
 
 SYSTEM_PROMPT = """You are a friendly voice assistant who can look up the
@@ -145,6 +145,8 @@ async def run(
             async def pump_responses() -> None:
                 # Gemini's receive() generator ends at each turn_complete, so
                 # open a new generator for every subsequent user turn.
+                user_transcript = ""
+                agent_transcript = ""
                 while True:
                     async for raw_message in session.receive():
                         message = LiveMessage(raw_message)
@@ -157,12 +159,35 @@ async def run(
                             audio_out.write(chunk)
                             ui.set_state("speaking")
 
-                        if message.user_transcript:
+                        if user_fragment := message.user_transcript:
+                            user_transcript = append_transcript(
+                                user_transcript, user_fragment
+                            )
                             ui.set_state("hearing you")
-                        if message.final_user_transcript:
-                            ui.log(f"user:  {message.final_user_transcript}")
-                        if message.final_agent_transcript:
-                            ui.log(f"agent: {message.final_agent_transcript}")
+                        if message.user_transcript_finished:
+                            if user_transcript:
+                                ui.log(f"user:  {user_transcript}")
+                            user_transcript = ""
+
+                        if agent_fragment := message.agent_transcript:
+                            agent_transcript = append_transcript(
+                                agent_transcript, agent_fragment
+                            )
+                        if message.agent_transcript_finished:
+                            if agent_transcript:
+                                ui.log(f"agent: {agent_transcript}")
+                            agent_transcript = ""
+
+                        # Gemini can omit a transcription-finished signal. ADK
+                        # flushes its fragment accumulators at these same live
+                        # boundaries so text never leaks into the next turn.
+                        if message.interrupted or message.turn_complete:
+                            if user_transcript:
+                                ui.log(f"user:  {user_transcript}")
+                                user_transcript = ""
+                            if agent_transcript:
+                                ui.log(f"agent: {agent_transcript}")
+                                agent_transcript = ""
 
                         if message.function_calls:
                             ui.set_state("running tools")
