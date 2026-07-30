@@ -103,8 +103,6 @@ async def run(
     audio_in: AudioInput,
     audio_out: AudioOutput,
     ui: StatusUI | None = None,
-    tracing_plugin: LangSmithGoogleADKLivePlugin | None = None,
-    thread_id: str | None = None,
 ) -> None:
     """Drive an ADK Live conversation over the given audio frontend.
 
@@ -135,18 +133,17 @@ async def run(
         tools=[get_time, get_weather],
     )
 
-    thread_id = thread_id or str(uuid.uuid4())
+    thread_id = str(uuid.uuid4())
 
     # The LangSmith plugin owns all tracing: it opens the conversation root on
     # `before_run`, spans each event on `on_event`, and finalizes on `after_run`.
-    if tracing_plugin is None:
-        tracing_plugin = LangSmithGoogleADKLivePlugin(
-            sample_rate=RECV_SAMPLE_RATE,
-            thread_id_provider=lambda: thread_id,
-            project_name=project_name,
-            tags=["voice-demo", "adk"],
-            metadata={"model": MODEL},
-        )
+    tracing_plugin = LangSmithGoogleADKLivePlugin(
+        sample_rate=RECV_SAMPLE_RATE,
+        thread_id_provider=lambda: thread_id,
+        project_name=project_name,
+        tags=["voice-demo", "adk"],
+        metadata={"model": MODEL},
+    )
 
     session_service = InMemorySessionService()
     adk_session = await session_service.create_session(app_name=APP_NAME, user_id=USER_ID)
