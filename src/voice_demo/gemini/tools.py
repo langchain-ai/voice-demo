@@ -4,12 +4,9 @@ from __future__ import annotations
 
 from typing import Any
 
-from langsmith import traceable
-
 from ..weather import fetch_weather
 
 
-@traceable(run_type="tool", name="lookup_weather")
 async def lookup_weather(city: str) -> dict:
     """Get the current weather for one city from the shared Open-Meteo client."""
     return await fetch_weather(city)
