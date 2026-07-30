@@ -5,6 +5,7 @@ sit next to each other in the LangSmith UI:
 
     voice-demo-openai
     voice-demo-openai-agents
+    voice-demo-gemini
     voice-demo-adk
     voice-demo-livekit
     voice-demo-livekit-with-langgraph
@@ -21,8 +22,8 @@ There are two tracing paths (see each backend's own module docstring for why):
     framework in-process that emits its own OTel spans; the LangSmith
     integrations translate and export those (`langsmith.integrations.{livekit,
     pipecat}`).
-  * SDK  — OpenAI Realtime and ADK Live consume a remote event stream and build
-    the trace themselves with the LangSmith SDK (`RunTree`).
+  * SDK  — OpenAI Realtime, raw Gemini Live, and ADK Live consume a remote event
+    stream and build the trace themselves with the LangSmith SDK (`RunTree`).
 
 Either way the integrations read LangSmith config (API key, project, endpoint)
 from the standard `LANGSMITH_*` environment, so this module only sets those.
@@ -37,6 +38,7 @@ from typing import Literal
 Backend = Literal[
     "openai",
     "openai-agents",
+    "gemini",
     "adk",
     "livekit",
     "livekit-with-langgraph",

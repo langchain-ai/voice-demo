@@ -1,14 +1,14 @@
 [project]
 name = "voice-demo"
 version = "0.1.0"
-description = "Voice-agent backends (OpenAI Realtime, Google ADK Live, LiveKit STT/LLM/TTS cascade, LiveKit speech-to-speech with OpenAI Realtime / Gemini Live, Pipecat, Pipecat with a LangGraph brain, and Pipecat speech-to-speech with OpenAI Realtime / Gemini Live), each instrumented for LangSmith the way its framework intends."
+description = "Voice-agent backends (raw OpenAI Realtime, raw Gemini Live, Google ADK Live, LiveKit and Pipecat cascades, and framework speech-to-speech variants), each instrumented for LangSmith the way its framework intends."
 requires-python = ">=3.11"
 dependencies = [
     "python-dotenv>=1.0",
     "sounddevice>=0.4",
     "numpy>=1.26",
     "scipy>=1.13",
-    "langsmith>=0.10.6",
+    "langsmith>=0.10.14",
     "httpx>=0.27",
     "pydantic>=2",
     "opentelemetry-sdk>=1.27",
@@ -24,15 +24,19 @@ openai-agents = [
     "openai-agents[realtime]>=0.2",
     "openai>=1.50",
 ]
+gemini = [
+    # Gemini Live over google-genai's official raw WebSocket session.
+    "google-genai>=1.75",
+]
 adk = [
     "google-adk>=2.3.0",
     "google-genai>=1.75",
-    "langsmith[google-adk]>=0.10.6",
+    "langsmith[google-adk]>=0.10.14",
 ]
 livekit = [
     # Covers all three LiveKit backends (cascade + the two S2S variants).
     # The LangSmith LiveKit integration (span processor + its deps, e.g. cachetools).
-    "langsmith[livekit]>=0.10.6",
+    "langsmith[livekit]>=0.10.14",
     # The agent is LiveKit-native (no LangChain brain): the cascade backend uses
     # assemblyai = STT and cartesia = TTS, openai = the LLM stage (and the
     # OpenAI Realtime model for the S2S variant); silero/turn-detector = VAD +
@@ -53,7 +57,7 @@ pipecat = [
     # Covers all four Pipecat backends: stock OpenAI LLM, the LangGraph variant,
     # OpenAI Realtime (S2S), and Gemini Live (S2S).
     # The LangSmith Pipecat integration (span processor + its deps, e.g. cachetools).
-    "langsmith[pipecat]>=0.10.6",
+    "langsmith[pipecat]>=0.10.14",
     # deepgram: STT + Aura TTS for the plain cascade backend · openai: the LLM
     # stage + OpenAI Realtime services · google: Gemini Live (pulls in
     # google-genai) · local: LocalAudioTransport (mic/speaker) · tracing: the
