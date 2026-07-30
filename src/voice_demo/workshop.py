@@ -1,3 +1,13 @@
+"""Notebook support helpers for the voice tracing workshop.
+
+The notebooks should show the agent setup and LangSmith integration points.
+This module hides the repetitive runtime plumbing: local mic/speaker setup,
+console runners, audio recording taps, event playback, and cancellation cleanup.
+
+Imports for optional voice SDKs stay inside functions so opening one notebook
+doesn't require every backend's extra dependencies.
+"""
+
 from __future__ import annotations
 
 import base64
@@ -8,7 +18,33 @@ from collections.abc import Iterable
 AUDIO_BUFFER_SIZE = 32_000
 
 
+# ---------------------------------------------------------------------------
+# Shared local console I/O
+# ---------------------------------------------------------------------------
+
+
+def console_io(sample_rate: int = 24_000):
+    """Return the repo's local mic, speaker, and console status UI."""
+    from .audio import MicStream, SpeakerStream
+    from .console import ConsoleStatus
+
+    return (
+        MicStream(sample_rate=sample_rate),
+        SpeakerStream(sample_rate=sample_rate),
+        ConsoleStatus(),
+    )
+
+
+openai_console_io = console_io
+
+
+# ---------------------------------------------------------------------------
+# Pipecat helpers
+# ---------------------------------------------------------------------------
+
+
 def local_transport():
+    """Return Pipecat's local mic/speaker transport."""
     from pipecat.transports.local.audio import (
         LocalAudioTransport,
         LocalAudioTransportParams,
@@ -20,6 +56,7 @@ def local_transport():
 
 
 def recorder(span_processor, conversation_id: str):
+    """Create a stereo recorder and attach it to the LangSmith span processor."""
     from pipecat.processors.audio.audio_buffer_processor import AudioBufferProcessor
 
     audiobuffer = AudioBufferProcessor(num_channels=2, buffer_size=AUDIO_BUFFER_SIZE)
@@ -29,6 +66,7 @@ def recorder(span_processor, conversation_id: str):
 
 
 def cascading_pipeline(stt, llm, tts, span_processor, conversation_id: str):
+    """Build the standard Pipecat STT -> LLM -> TTS local pipeline."""
     from pipecat.audio.vad.silero import SileroVADAnalyzer
     from pipecat.pipeline.pipeline import Pipeline
     from pipecat.processors.aggregators.llm_context import LLMContext
@@ -61,6 +99,7 @@ def cascading_pipeline(stt, llm, tts, span_processor, conversation_id: str):
 
 
 async def run_task(pipeline, conversation_id: str, before_run: Iterable = ()) -> None:
+    """Run a Pipecat `PipelineTask` with tracing and turn tracking enabled."""
     from pipecat.pipeline.runner import PipelineRunner
     from pipecat.pipeline.task import PipelineParams, PipelineTask
 
@@ -78,6 +117,7 @@ async def run_task(pipeline, conversation_id: str, before_run: Iterable = ()) ->
 
 
 async def run_worker(pipeline, conversation_id: str, before_run: Iterable = ()) -> None:
+    """Run a Pipecat `PipelineWorker` with tracing and turn tracking enabled."""
     from pipecat.pipeline.worker import PipelineParams, PipelineWorker
     from pipecat.workers.runner import WorkerRunner
 
@@ -94,27 +134,22 @@ async def run_worker(pipeline, conversation_id: str, before_run: Iterable = ()) 
     await runner.run()
 
 
-def console_io(sample_rate: int = 24_000):
-    from .audio import MicStream, SpeakerStream
-    from .console import ConsoleStatus
-
-    return (
-        MicStream(sample_rate=sample_rate),
-        SpeakerStream(sample_rate=sample_rate),
-        ConsoleStatus(),
-    )
-
-
-openai_console_io = console_io
+# ---------------------------------------------------------------------------
+# LiveKit helpers
+# ---------------------------------------------------------------------------
 
 
 def run_livekit_console(server) -> None:
-    import sys
-
+    """Run a LiveKit `AgentServer` in local console mode with audio recording."""
     from livekit import agents
 
     sys.argv = [sys.argv[0], "console", "--record"]
     agents.cli.run_app(server)
+
+
+# ---------------------------------------------------------------------------
+# Google ADK Live helpers
+# ---------------------------------------------------------------------------
 
 
 async def run_google_adk_live_session(
@@ -130,6 +165,7 @@ async def run_google_adk_live_session(
     recv_sample_rate: int = 24_000,
     send_sample_rate: int = 16_000,
 ) -> None:
+    """Run the ADK Live mic/playback loop around a preconfigured traced runner."""
     import asyncio
 
     from google.adk.agents.run_config import RunConfig, StreamingMode
@@ -214,7 +250,13 @@ async def run_google_adk_live_session(
         ui.finish()
 
 
+# ---------------------------------------------------------------------------
+# OpenAI Realtime helpers
+# ---------------------------------------------------------------------------
+
+
 async def pump_openai_mic(connection, audio_in, ui) -> None:
+    """Stream local mic frames into an OpenAI Realtime connection."""
     from .console import frame_level
 
     async for frame in audio_in.frames():
@@ -226,6 +268,7 @@ async def pump_openai_mic(connection, audio_in, ui) -> None:
 
 
 async def handle_openai_realtime_event(connection, event, audio_out, ui) -> None:
+    """Handle one OpenAI Realtime server event for the workshop agent."""
     from voice_demo.openai.utils import execute_tool
 
     if event.type == "response.output_audio.delta":
@@ -271,6 +314,7 @@ async def run_openai_realtime_agent(
     trace_realtime,
     sample_rate: int = 24_000,
 ) -> None:
+    """Run a traced OpenAI Realtime voice session with the notebook's wrapper."""
     import asyncio
 
     from openai import AsyncOpenAI
