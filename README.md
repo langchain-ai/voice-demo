@@ -25,6 +25,19 @@ Each backend lives in its own self-contained folder under `src/voice_demo/`
 (the `livekit*` and `pipecat*` folders repeat some framework boilerplate on
 purpose, so each one reads as one complete example).
 
+## Workshops
+
+Notebook walkthroughs live in `src/workshop/`:
+
+- `openai_realtime_langsmith.ipynb`
+- `google_adk_live_langsmith.ipynb`
+- `livekit_agent_langsmith.ipynb`
+- `pipecat_cascade_langsmith.ipynb`
+
+Each workshop follows the same flow: build the agent, configure LangSmith
+tracing, put the framework pieces together, then run the maintained backend code
+live so the audio plumbing stays out of the lesson.
+
 ## Setup
 
 Requires Python 3.11+ and [uv](https://docs.astral.sh/uv/).
