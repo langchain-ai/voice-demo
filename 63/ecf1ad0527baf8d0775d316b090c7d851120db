@@ -1,0 +1,47 @@
+src/voice_demo/cli.py
+  s_a0021f73ccde37::t_d07f12cdc7f562 5-6,24-28,92-93,102-116,206-226
+src/voice_demo/elevenlabs/__init__.py
+  s_a0021f73ccde37::t_9588d1c1417d63 1-8
+.env.example
+  s_a0021f73ccde37::t_e3d6c15ba9c963 25-29
+src/voice_demo/elevenlabs/webhook.py
+  s_a0021f73ccde37::t_fb00fda9d9ce64 95-102,105-124,126-155,165-166,168,170-171,181,201
+  s_a0021f73ccde37::t_c1d58360abfd48 1-94,103-104,125
+  s_a0021f73ccde37::t_5dc74425ee5c8f 156-164,167,169,172-180,182-200,202-233
+src/voice_demo/tracing.py
+  s_a0021f73ccde37::t_7fd9f18fc3bc96 18,28-31,56-57,65-67
+pyproject.toml
+  s_a0021f73ccde37::t_3bd9412728de90 76-82
+README.md
+  s_a0021f73ccde37::t_857209052738ca 23-24,74-75,88-177,180,182-189,203-205
+src/voice_demo/elevenlabs/agent.py
+  s_a0021f73ccde37::t_d95f048260a060 67-70
+  s_a0021f73ccde37::t_845ae3deb861ed 1-66
+src/voice_demo/elevenlabs/utils/__init__.py
+  s_a0021f73ccde37::t_5112e80072baa8 1-7
+src/voice_demo/elevenlabs/utils/audio.py
+  s_a0021f73ccde37::t_aa642e4ef3cd1c 1-91
+src/voice_demo/elevenlabs/utils/tunnel.py
+  s_a0021f73ccde37::t_877b46d6233b76 1-260
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.24",
+  "base_commit_sha": "63ecf1ad0527baf8d0775d316b090c7d851120db",
+  "prompts": {},
+  "humans": {
+    "h_3a9d271fbf3886": {
+      "author": "Caroline di Vittorio <43390382+carolinedivittorio@users.noreply.github.com>"
+    }
+  },
+  "sessions": {
+    "s_a0021f73ccde37": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "ae8be3e4-8dfd-4fbb-9e1e-fb7ca5c7821f",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Caroline di Vittorio <43390382+carolinedivittorio@users.noreply.github.com>"
+    }
+  }
+}
