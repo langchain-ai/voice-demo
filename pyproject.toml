@@ -73,6 +73,13 @@ pipecat = [
     "langchain-core>=0.3",
 ]
 
+elevenlabs = [
+    "elevenlabs>=2.64",
+    "fastapi>=0.115",
+    "uvicorn>=0.30",
+    "ngrok>=1.4",
+]
+
 [project.scripts]
 voice-demo = "voice_demo.cli:main"
 

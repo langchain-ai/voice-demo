@@ -15,6 +15,7 @@ sit next to each other in the LangSmith UI:
     voice-demo-pipecat-with-langgraph
     voice-demo-pipecat-with-openai-realtime
     voice-demo-pipecat-with-gemini-live
+    voice-demo-elevenlabs
 
 There are two tracing paths (see each backend's own module docstring for why):
 
@@ -24,6 +25,10 @@ There are two tracing paths (see each backend's own module docstring for why):
     pipecat}`).
   * SDK  — OpenAI Realtime, raw Gemini Live, and ADK Live consume a remote event
     stream and build the trace themselves with the LangSmith SDK (`RunTree`).
+  * POST-CALL — ElevenLabs runs the agent server-side and emits a finished OTLP
+    trace afterwards, by webhook. Nothing is traced in this process at all; the
+    `elevenlabs-webhook` backend receives it and forwards it. Both backends
+    resolve to the same project so the conversation and its trace line up.
 
 Either way the integrations read LangSmith config (API key, project, endpoint)
 from the standard `LANGSMITH_*` environment, so this module only sets those.
@@ -48,6 +53,8 @@ Backend = Literal[
     "pipecat-with-langgraph",
     "pipecat-with-openai-realtime",
     "pipecat-with-gemini-live",
+    "elevenlabs",
+    "elevenlabs-webhook",
 ]
 
 
@@ -55,6 +62,9 @@ def project_name_for(backend: Backend, override: str | None = None) -> str:
     if override:
         return override
     prefix = os.environ.get("LANGSMITH_PROJECT_PREFIX", "voice-demo")
+    # The receiver traces the conversations the `elevenlabs` backend holds, so
+    # both sides share one project.
+    backend = backend.removesuffix("-webhook")
     return f"{prefix}-{backend}"
 
 

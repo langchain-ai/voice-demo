@@ -2,7 +2,8 @@
 
 Backends: openai · openai-agents · gemini · adk · livekit · livekit-with-openai-realtime ·
 livekit-with-gemini-live · pipecat · pipecat-with-langgraph ·
-pipecat-with-openai-realtime · pipecat-with-gemini-live. The
+pipecat-with-openai-realtime · pipecat-with-gemini-live · elevenlabs ·
+elevenlabs-webhook. The
 `*-with-openai-realtime` / `*-with-gemini-live` / `livekit-with-*` backends swap
 their framework's STT→LLM→TTS cascade for a speech-to-speech realtime model
 (OpenAI Realtime / Gemini Live); `pipecat` uses Pipecat's stock OpenAI LLM
@@ -19,6 +20,11 @@ backends receive their audio I/O and status UI through small protocols
 for a web or telephony one means reimplementing those interfaces here, not
 touching the agents. LiveKit and Pipecat own their own audio path through their
 frameworks, so for those we just wire the tracer and hand control over.
+
+ElevenLabs is the exception to all of it: the agent runs on ElevenLabs' servers
+and the trace arrives afterwards by webhook, so it comes as a pair — the
+`elevenlabs` backend holds the conversation, and `elevenlabs-webhook` runs the
+receiver that verifies those webhooks and forwards them to LangSmith.
 
 Each backend lazily imports its framework, so a missing optional dependency for
 one backend doesn't break the others. `uv sync --extra openai` is enough to run
@@ -83,6 +89,8 @@ def main() -> None:
             "pipecat-with-langgraph",
             "pipecat-with-openai-realtime",
             "pipecat-with-gemini-live",
+            "elevenlabs",
+            "elevenlabs-webhook",
         ),
         help="Which voice-agent stack to launch.",
     )
@@ -90,6 +98,21 @@ def main() -> None:
         "--project",
         default=None,
         help="LangSmith project name. Defaults to '<prefix>-<backend>'.",
+    )
+    parser.add_argument(
+        "--port",
+        type=int,
+        default=8080,
+        help="Port for the elevenlabs-webhook receiver. Ignored by other backends.",
+    )
+    parser.add_argument(
+        "--tunnel",
+        action="store_true",
+        help=(
+            "elevenlabs only: do the whole loop in one process — open an ngrok "
+            "tunnel, register a webhook, point the agent at it, run the "
+            "receiver, converse, then undo the ElevenLabs-side changes."
+        ),
     )
     parser.add_argument(
         "--debug",
@@ -179,6 +202,27 @@ def main() -> None:
         from .pipecat_with_openai_realtime.agent import run as run_pipecat_realtime
 
         asyncio.run(run_pipecat_realtime(project_name=project))
+
+    elif args.backend == "elevenlabs":
+        # The agent runs on ElevenLabs' servers, so there is nothing to trace in
+        # this process — the post-call trace arrives by webhook. `--tunnel` puts
+        # the receiver, the tunnel, and the ElevenLabs-side wiring in this same
+        # process; without it, start `elevenlabs-webhook` yourself first.
+        if args.tunnel:
+            from .elevenlabs.utils.tunnel import run as run_elevenlabs_tunnel
+
+            run_elevenlabs_tunnel(project_name=project, port=args.port)
+        else:
+            from .elevenlabs.agent import run as run_elevenlabs
+
+            run_elevenlabs(project_name=project)
+
+    elif args.backend == "elevenlabs-webhook":
+        # Receives ElevenLabs' post-call webhooks, verifies their HMAC, pairs the
+        # OTLP trace with the audio, and forwards both to LangSmith.
+        from .elevenlabs.webhook import run as run_elevenlabs_webhook
+
+        run_elevenlabs_webhook(project_name=project, port=args.port)
 
     elif args.backend == "pipecat-with-gemini-live":
         # Same Pipecat pipeline, but the STT/LLM/TTS cascade is collapsed into a
