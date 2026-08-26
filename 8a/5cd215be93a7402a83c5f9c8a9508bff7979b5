@@ -1,0 +1,50 @@
+src/voice_demo/livekit_appointment_booker/__init__.py
+  s_3e657e5997a0b9::t_83c60eddddc519 1-8
+evals/livekit_appointment_booker/appointment_booked.py
+  s_3e657e5997a0b9::t_35d21207f9eb97 1-18,20-93,95-123
+  s_668986fc3514ae::t_41d7c79d7cae7b 19,94
+README.md
+  s_3e657e5997a0b9::t_f83a407bdd6350 19
+  s_3e657e5997a0b9::t_9269db642e5711 67
+  s_3e657e5997a0b9::t_885af6dbdcb6c4 82-89
+src/voice_demo/cli.py
+  s_3e657e5997a0b9::t_c78d3e2c802256 82
+  s_3e657e5997a0b9::t_0c8653eadf9c06 163-170
+src/voice_demo/tracing.py
+  s_3e657e5997a0b9::t_aaede7c6a55edc 14
+  s_3e657e5997a0b9::t_bbe9c8fad443ce 48
+src/voice_demo/livekit_appointment_booker/agent.py
+  s_3e657e5997a0b9::t_0938214f07dcdf 1-68,72-86,88-93,98-145,147-159,161-168,170-200
+  s_3e657e5997a0b9::t_23dba4a1fb3407 87
+  s_3e657e5997a0b9::t_89a2d44f804af2 69-71,94-97
+  s_3e657e5997a0b9::t_18fb2bffc51501 146
+  s_3e657e5997a0b9::t_62b58a91ff17e2 160
+  s_3e657e5997a0b9::t_6423b9035ed6f7 169
+src/voice_demo/livekit_appointment_booker/tools.py
+  s_3e657e5997a0b9::t_1a9449de200ad0 1-17,19-88
+  s_3e657e5997a0b9::t_be4b93cefe54d2 18
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.24",
+  "base_commit_sha": "8a5cd215be93a7402a83c5f9c8a9508bff7979b5",
+  "prompts": {},
+  "sessions": {
+    "s_3e657e5997a0b9": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "9a0629b5-213b-4a0b-9d12-652743fd78df",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Caroline di Vittorio <43390382+carolinedivittorio@users.noreply.github.com>"
+    },
+    "s_668986fc3514ae": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "3dbb9f50-775b-46fd-b635-cb1d7d230498",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Caroline di Vittorio <43390382+carolinedivittorio@users.noreply.github.com>"
+    }
+  }
+}
