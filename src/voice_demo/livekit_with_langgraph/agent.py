@@ -35,7 +35,6 @@ from __future__ import annotations
 
 import os
 import sys
-from pathlib import Path
 from typing import Any
 
 LLM_MODEL = os.getenv("LIVEKIT_LLM_MODEL", "gpt-4o-mini")
@@ -43,7 +42,6 @@ STT_MODEL = os.getenv("LIVEKIT_STT_MODEL") or None
 TTS_VOICE = os.getenv("LIVEKIT_TTS_VOICE") or None
 TTS_MODEL = os.getenv("LIVEKIT_TTS_MODEL") or None
 
-_audio_file_path: Path | None = None
 
 # The graph node whose streamed text deltas are the user-facing answer. The
 # tool-deciding turn streams tool-call deltas with empty content (traced, never
@@ -161,14 +159,14 @@ def run(project_name: str) -> None:
     from .graph import build_graph
 
     if os.environ.get("LANGSMITH_API_KEY"):
-        configure_livekit(
-            audio_path_provider=lambda: _audio_file_path,
+        processor = configure_livekit(
             project=project_name,
         )
         print(
             "[livekit-with-langgraph] LangSmith OTel tracing enabled.", file=sys.stderr
         )
     else:
+        processor = None
         print(
             "[livekit-with-langgraph] LANGSMITH_API_KEY not set — running without tracing.",
             file=sys.stderr,
@@ -244,13 +242,27 @@ def run(project_name: str) -> None:
                     # into ChatContext after playout — closing the loop.
                     yield text
 
+    async def _on_session_end(ctx: agents.JobContext) -> None:
+        """Hand the finished recording to LangSmith.
+
+        By now LiveKit's recorder has closed, so the session report carries the
+        finished audio file *and* the wall-clock instant its first sample was
+        captured. That origin is the point: the recorder starts inside
+        ``session.start()``, seconds after the trace root begins, so without it
+        the trace audio player assumes the two coincide and playback runs ahead
+        of the waterfall. The report's chat history also becomes the root
+        transcript, tool calls included.
+        """
+        if processor is not None:
+            processor.attach_session_report(
+                ctx.make_session_report(), thread_id=ctx.job.id
+            )
+
     server = agents.AgentServer()
 
-    @server.rtc_session()
+    @server.rtc_session(on_session_end=_on_session_end)
     async def _entrypoint(ctx: agents.JobContext) -> None:
-        global _audio_file_path
         set_thread_id(ctx.job.id)
-        _audio_file_path = ctx.session_directory / "audio.ogg"
 
         assistant = _Assistant()
         # The checkpointer keys on this id; set it once the Agent exists.

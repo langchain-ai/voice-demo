@@ -18,21 +18,7 @@ from __future__ import annotations
 
 import os
 import sys
-from pathlib import Path
 
-# The conversation's thread id is set once per session via the SDK's
-# ``set_thread_id`` (a ContextVar) in the entrypoint; the processor reads it per
-# span. The audio path is handed to the processor as an app-owned provider.
-#
-# A module global, not a ContextVar: deferred root spans can be exported at
-# flush/shutdown, outside the job's task tree. Console mode runs one job per
-# process, so a single slot is enough.
-_audio_file_path: Path | None = None
-# This demo runs in console mode, so it uses the local-file recording path
-# (audio_path_provider) below. In a deployed worker ctx.session_directory is
-# ephemeral; production captures audio with LiveKit Egress and attaches it via
-# the processor's expect_recording / complete_recording methods. See the
-# "Record in production with Egress" section of the LangSmith LiveKit docs.
 
 
 def run(project_name: str) -> None:
@@ -62,7 +48,6 @@ def run(project_name: str) -> None:
     processor = None
     if os.environ.get("LANGSMITH_API_KEY"):
         processor = configure_livekit(
-            audio_path_provider=lambda: _audio_file_path,
             project=project_name,
         )
         print("[livekit-gemini-live] LangSmith OTel tracing enabled.", file=sys.stderr)
@@ -91,15 +76,29 @@ def run(project_name: str) -> None:
             """Get the current weather for a single city. Call once per city."""
             return await fetch_weather(city)
 
+    async def _on_session_end(ctx: agents.JobContext) -> None:
+        """Hand the finished recording to LangSmith.
+
+        By now LiveKit's recorder has closed, so the session report carries the
+        finished audio file *and* the wall-clock instant its first sample was
+        captured. That origin is the point: the recorder starts inside
+        ``session.start()``, seconds after the trace root begins, so without it
+        the trace audio player assumes the two coincide and playback runs ahead
+        of the waterfall. The report's chat history also becomes the root
+        transcript, tool calls included.
+        """
+        if processor is not None:
+            processor.attach_session_report(
+                ctx.make_session_report(), thread_id=ctx.job.id
+            )
+
     server = agents.AgentServer()
 
-    @server.rtc_session()
+    @server.rtc_session(on_session_end=_on_session_end)
     async def _entrypoint(ctx: agents.JobContext) -> None:
-        global _audio_file_path
         # ctx.job.id is unique per dispatch; ctx.room.name is "console" in
         # console mode and would collide every session into one giant thread.
         set_thread_id(ctx.job.id)
-        _audio_file_path = ctx.session_directory / "audio.ogg"
 
         session = _build_session()
         if processor is not None:
