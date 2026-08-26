@@ -1,0 +1,29 @@
+pyproject.toml
+  s_a5d2e0c92ada19::t_c28b862661f655 39-40,87-93
+src/voice_demo/livekit/agent.py
+  s_a5d2e0c92ada19::t_5bed49d8fe1603 91,98,103,152-167,170,182-190
+src/voice_demo/livekit_with_gemini_live/agent.py
+  s_a5d2e0c92ada19::t_490787e55b60d2 21,79-94,97
+src/voice_demo/livekit_with_langgraph/agent.py
+  s_a5d2e0c92ada19::t_3657de1d8b4cb0 162,169,245-260,263
+src/voice_demo/livekit_with_openai_realtime/agent.py
+  s_a5d2e0c92ada19::t_87682070e3edb4 21,81-96,99
+uv.lock
+  s_a5d2e0c92ada19::t_c86e9478cc9f41 1400,1438-1543,4110-4113
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.24",
+  "base_commit_sha": "14d0673f403b3d30639901bedddd299a0b2dec4d",
+  "prompts": {},
+  "sessions": {
+    "s_a5d2e0c92ada19": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "2e409226-5490-424b-b041-b7942cb6e4cc",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Caroline di Vittorio <43390382+carolinedivittorio@users.noreply.github.com>"
+    }
+  }
+}
