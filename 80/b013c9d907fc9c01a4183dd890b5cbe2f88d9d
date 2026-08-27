@@ -1,0 +1,19 @@
+pyproject.toml
+  s_8ee75f9372752e::t_80768b5b7880b8 11,34,37,39,60
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.0",
+  "base_commit_sha": "80b013c9d907fc9c01a4183dd890b5cbe2f88d9d",
+  "prompts": {},
+  "sessions": {
+    "s_8ee75f9372752e": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a04550-03f2-75f2-9ca1-edfee8fd1230",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Caroline di Vittorio <43390382+carolinedivittorio@users.noreply.github.com>"
+    }
+  }
+}
