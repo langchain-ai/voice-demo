@@ -9,7 +9,6 @@ sit next to each other in the LangSmith UI:
     voice-demo-adk
     voice-demo-livekit
     voice-demo-livekit-with-langgraph
-    voice-demo-livekit-with-recording-egress
     voice-demo-livekit-with-openai-realtime
     voice-demo-livekit-with-gemini-live
     voice-demo-pipecat
@@ -43,7 +42,6 @@ Backend = Literal[
     "adk",
     "livekit",
     "livekit-with-langgraph",
-    "livekit-with-recording-egress",
     "livekit-with-openai-realtime",
     "livekit-with-gemini-live",
     "pipecat",
