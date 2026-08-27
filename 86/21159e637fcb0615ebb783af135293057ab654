@@ -1,0 +1,32 @@
+src/voice_demo/livekit_with_recording_egress/__init__.py
+  s_c138dc182265e7::t_930dfee42de3d8 1
+src/voice_demo/livekit_with_recording_egress/agent.py
+  s_c138dc182265e7::t_930dfee42de3d8 1-147
+  s_c138dc182265e7::t_fb41c1ea635a0f 148-150
+src/voice_demo/cli.py
+  s_c138dc182265e7::t_c0f3c772a9a17f 80,149-150,152
+  s_c138dc182265e7::t_908ce3d0cc7d23 151
+  s_c138dc182265e7::t_76913362053333 153
+src/voice_demo/tracing.py
+  s_c138dc182265e7::t_c0f3c772a9a17f 12,46
+README.md
+  s_c138dc182265e7::t_5c6318ef24f5c6 17
+  s_c138dc182265e7::t_c0f3c772a9a17f 65,76-80
+  s_c138dc182265e7::t_e2d3a3e27f8f26 81
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.24",
+  "base_commit_sha": "8621159e637fcb0615ebb783af135293057ab654",
+  "prompts": {},
+  "sessions": {
+    "s_c138dc182265e7": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a04080-55e6-7383-832c-14676779c04b",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Caroline di Vittorio <43390382+carolinedivittorio@users.noreply.github.com>"
+    }
+  }
+}
