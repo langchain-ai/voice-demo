@@ -14,6 +14,7 @@ This repo implements a variety of voice agent backends across different framewor
 | `adk` | Google ADK Live (Gemini) |
 | `livekit` | LiveKit STT → LLM → TTS cascade (AssemblyAI STT · OpenAI LLM · Cartesia TTS) |
 | `livekit-with-langgraph` | LiveKit, but the Agent's `llm_node` runs an in-process LangGraph agent — LiveKit owns the ChatContext (barge-in-truncated transcript), LangGraph owns the control flow |
+| `livekit-with-recording-egress` | LiveKit cascade that delivers the report and recording separately, reading audio from a distinct simulated Egress path |
 | `livekit-with-openai-realtime` | LiveKit, LLM slot swapped for OpenAI Realtime (speech-to-speech) |
 | `livekit-with-gemini-live` | LiveKit, LLM slot swapped for Gemini Live (speech-to-speech) |
 | `pipecat` | Pipecat STT / LLM / TTS (Deepgram STT + Aura TTS · OpenAI LLM) |
@@ -61,6 +62,7 @@ uv run voice-demo --backend gemini
 uv run voice-demo --backend adk
 uv run voice-demo --backend livekit
 uv run voice-demo --backend livekit-with-langgraph
+uv run voice-demo --backend livekit-with-recording-egress
 uv run voice-demo --backend livekit-with-openai-realtime
 uv run voice-demo --backend livekit-with-gemini-live
 uv run voice-demo --backend pipecat
@@ -70,6 +72,12 @@ uv run voice-demo --backend pipecat-with-gemini-live
 ```
 
 Each backend opens your local mic and speaker.
+
+The `livekit-with-recording-egress` backend copies LiveKit's completed local
+recording to a separate temporary path, attaches the session report, then reads
+that separate file in the shutdown callback and calls `complete_recording`.
+Its five-second recording delay produces an offset near 5000 milliseconds for
+testing player alignment and span-click seeking.
 
 Things to try:
 

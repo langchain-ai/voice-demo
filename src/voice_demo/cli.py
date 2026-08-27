@@ -77,6 +77,7 @@ def main() -> None:
             "adk",
             "livekit",
             "livekit-with-langgraph",
+            "livekit-with-recording-egress",
             "livekit-with-openai-realtime",
             "livekit-with-gemini-live",
             "pipecat",
@@ -144,6 +145,11 @@ def main() -> None:
         from .livekit_with_langgraph.agent import run as run_livekit_langgraph
 
         run_livekit_langgraph(project_name=project)
+
+    elif args.backend == "livekit-with-recording-egress":
+        from .livekit_with_recording_egress.agent import run as run_livekit_egress
+
+        run_livekit_egress(project_name=project)
 
     elif args.backend == "livekit-with-openai-realtime":
         # Same LiveKit console flow, but the session's LLM slot is a
