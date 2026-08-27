@@ -80,7 +80,7 @@ def run(project_name: str) -> None:
     )
 
     from ..prompts import GREETING, SYSTEM_PROMPT
-    from langsmith.integrations.livekit import configure_livekit, set_thread_id
+    from langsmith.integrations.livekit import configure_livekit
     from ..weather import fetch_weather
 
     # --- Tracing wiring ---
@@ -151,10 +151,6 @@ def run(project_name: str) -> None:
 
     @server.rtc_session()
     async def _entrypoint(ctx: agents.JobContext) -> None:
-        # ctx.job.id is unique per dispatch; ctx.room.name is "console" in
-        # console mode and would collide every session into one giant thread.
-        set_thread_id(ctx.job.id)
-
         session = _build_session()
         await session.start(
             room=ctx.room,

@@ -93,6 +93,7 @@ def run(project_name: str) -> None:
 
     @server.rtc_session()
     async def _entrypoint(ctx: agents.JobContext) -> None:
+        # External recording delivery is routed to the trace by thread id.
         thread_id = ctx.job.id
         set_thread_id(thread_id)
 

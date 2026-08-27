@@ -81,8 +81,8 @@ def run(project_name: str) -> None:
 
     @server.rtc_session()
     async def _entrypoint(ctx: agents.JobContext) -> None:
-        # ctx.job.id is unique per dispatch; ctx.room.name is "console" in
-        # console mode and would collide every session into one giant thread.
+        # Realtime user transcripts arrive outside spans, so instrument_session
+        # and the trace use the same unique id to pair each transcript correctly.
         set_thread_id(ctx.job.id)
 
         session = _build_session()

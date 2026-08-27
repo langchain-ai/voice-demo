@@ -154,7 +154,7 @@ def run(project_name: str) -> None:
     )
 
     from ..prompts import GREETING, SYSTEM_PROMPT
-    from langsmith.integrations.livekit import configure_livekit, set_thread_id
+    from langsmith.integrations.livekit import configure_livekit
 
     from .graph import build_graph
 
@@ -245,8 +245,6 @@ def run(project_name: str) -> None:
 
     @server.rtc_session()
     async def _entrypoint(ctx: agents.JobContext) -> None:
-        set_thread_id(ctx.job.id)
-
         assistant = _Assistant()
         # The checkpointer keys on this id; set it once the Agent exists.
         assistant._thread_id = ctx.job.id
