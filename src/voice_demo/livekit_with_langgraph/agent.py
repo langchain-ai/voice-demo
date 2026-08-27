@@ -35,7 +35,6 @@ from __future__ import annotations
 
 import os
 import sys
-from pathlib import Path
 from typing import Any
 
 LLM_MODEL = os.getenv("LIVEKIT_LLM_MODEL", "gpt-4o-mini")
@@ -43,7 +42,6 @@ STT_MODEL = os.getenv("LIVEKIT_STT_MODEL") or None
 TTS_VOICE = os.getenv("LIVEKIT_TTS_VOICE") or None
 TTS_MODEL = os.getenv("LIVEKIT_TTS_MODEL") or None
 
-_audio_file_path: Path | None = None
 
 # The graph node whose streamed text deltas are the user-facing answer. The
 # tool-deciding turn streams tool-call deltas with empty content (traced, never
@@ -156,13 +154,12 @@ def run(project_name: str) -> None:
     )
 
     from ..prompts import GREETING, SYSTEM_PROMPT
-    from langsmith.integrations.livekit import configure_livekit, set_thread_id
+    from langsmith.integrations.livekit import configure_livekit
 
     from .graph import build_graph
 
     if os.environ.get("LANGSMITH_API_KEY"):
         configure_livekit(
-            audio_path_provider=lambda: _audio_file_path,
             project=project_name,
         )
         print(
@@ -248,10 +245,6 @@ def run(project_name: str) -> None:
 
     @server.rtc_session()
     async def _entrypoint(ctx: agents.JobContext) -> None:
-        global _audio_file_path
-        set_thread_id(ctx.job.id)
-        _audio_file_path = ctx.session_directory / "audio.ogg"
-
         assistant = _Assistant()
         # The checkpointer keys on this id; set it once the Agent exists.
         assistant._thread_id = ctx.job.id

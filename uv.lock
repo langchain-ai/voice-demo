@@ -1397,7 +1397,7 @@ wheels = [
 
 [[package]]
 name = "langsmith"
-version = "0.10.14"
+version = "0.11.2"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "anyio" },
@@ -1415,9 +1415,9 @@ dependencies = [
     { name = "xxhash" },
     { name = "zstandard" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/b6/c2/804558586a5363af85fc5b03ea327d0ba5d4d83da4c7d53fbed2413ef681/langsmith-0.10.14.tar.gz", hash = "sha256:edd3711ed1a334e5fb87b15eb0777b5abe5ad931dc13bfb79b93fffcbd2c2b4c", size = 4782076, upload-time = "2026-07-30T23:27:22.164Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/c9/0a/1acb2a3ffbccbe8f8dc358778967c9d2979e8a59b67ceba6eb54474324ab/langsmith-0.11.2.tar.gz", hash = "sha256:927694c939c9fb44187e0126cf718413c45ffce2324d480438e70eb0526e1380", size = 4841592, upload-time = "2026-08-27T22:31:34.004Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/59/62/178c8c5bb50efd3e88986212993349aa027ff90364ccd4db4e3c596aede6/langsmith-0.10.14-py3-none-any.whl", hash = "sha256:185432f170c1639e9be14aad4116ba59079753a5762c7e1a26c11cf9988f8288", size = 726292, upload-time = "2026-07-30T23:27:20.333Z" },
+    { url = "https://files.pythonhosted.org/packages/00/d9/cec0c1d24dda8c67a23ad204d0167e50aee202460e9388488661d94513f5/langsmith-0.11.2-py3-none-any.whl", hash = "sha256:75258142d27dffcc5df331479704b23fc3fd812cfca0469119bb9055a842882f", size = 753928, upload-time = "2026-08-27T22:31:31.644Z" },
 ]
 
 [package.optional-dependencies]
@@ -4006,10 +4006,10 @@ requires-dist = [
     { name = "langchain-openai", marker = "extra == 'pipecat'", specifier = ">=0.2" },
     { name = "langgraph", marker = "extra == 'livekit'", specifier = ">=0.2" },
     { name = "langgraph", marker = "extra == 'pipecat'", specifier = ">=0.2" },
-    { name = "langsmith", specifier = ">=0.10.14" },
-    { name = "langsmith", extras = ["google-adk"], marker = "extra == 'adk'", specifier = ">=0.10.14" },
-    { name = "langsmith", extras = ["livekit"], marker = "extra == 'livekit'", specifier = ">=0.10.14" },
-    { name = "langsmith", extras = ["pipecat"], marker = "extra == 'pipecat'", specifier = ">=0.10.14" },
+    { name = "langsmith", specifier = "==0.11.2" },
+    { name = "langsmith", extras = ["google-adk"], marker = "extra == 'adk'", specifier = "==0.11.2" },
+    { name = "langsmith", extras = ["livekit"], marker = "extra == 'livekit'", specifier = "==0.11.2" },
+    { name = "langsmith", extras = ["pipecat"], marker = "extra == 'pipecat'", specifier = "==0.11.2" },
     { name = "livekit-agents", extras = ["assemblyai", "cartesia", "openai", "silero", "turn-detector"], marker = "extra == 'livekit'", specifier = ">=1.6.4" },
     { name = "livekit-plugins-google", marker = "extra == 'livekit'", specifier = ">=1.6.4" },
     { name = "numpy", specifier = ">=1.26" },

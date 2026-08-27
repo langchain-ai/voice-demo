@@ -18,21 +18,6 @@ from __future__ import annotations
 
 import os
 import sys
-from pathlib import Path
-
-# The conversation's thread id is set once per session via the SDK's
-# ``set_thread_id`` (a ContextVar) in the entrypoint; the processor reads it per
-# span. The audio path is handed to the processor as an app-owned provider.
-#
-# A module global, not a ContextVar: deferred root spans can be exported at
-# flush/shutdown, outside the job's task tree. Console mode runs one job per
-# process, so a single slot is enough.
-_audio_file_path: Path | None = None
-# This demo runs in console mode, so it uses the local-file recording path
-# (audio_path_provider) below. In a deployed worker ctx.session_directory is
-# ephemeral; production captures audio with LiveKit Egress and attaches it via
-# the processor's expect_recording / complete_recording methods. See the
-# "Record in production with Egress" section of the LangSmith LiveKit docs.
 
 
 def run(project_name: str) -> None:
@@ -62,7 +47,6 @@ def run(project_name: str) -> None:
     processor = None
     if os.environ.get("LANGSMITH_API_KEY"):
         processor = configure_livekit(
-            audio_path_provider=lambda: _audio_file_path,
             project=project_name,
         )
         print(
@@ -97,11 +81,9 @@ def run(project_name: str) -> None:
 
     @server.rtc_session()
     async def _entrypoint(ctx: agents.JobContext) -> None:
-        global _audio_file_path
-        # ctx.job.id is unique per dispatch; ctx.room.name is "console" in
-        # console mode and would collide every session into one giant thread.
+        # Realtime user transcripts arrive outside spans, so instrument_session
+        # and the trace use the same unique id to pair each transcript correctly.
         set_thread_id(ctx.job.id)
-        _audio_file_path = ctx.session_directory / "audio.ogg"
 
         session = _build_session()
         if processor is not None:
