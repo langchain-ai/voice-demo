@@ -42,7 +42,6 @@ TTS_VOICE = os.getenv("LIVEKIT_TTS_VOICE") or None
 TTS_MODEL = os.getenv("LIVEKIT_TTS_MODEL") or None
 
 
-
 def run(project_name: str) -> None:
     """Launch a LiveKit console agent (cascade). Blocks until Ctrl-C.
 
@@ -88,19 +87,18 @@ def run(project_name: str) -> None:
     # `configure_livekit` builds the TracerProvider, registers the
     # LangSmith span processor (which targets LangSmith's OTLP endpoint via the
     # SDK's own exporter), and wires it as both LiveKit's and the OTel global
-    # provider. The recording is handed over separately, at session end.
+    # provider. Session reports and recordings are captured automatically.
     #
     # Two ways to install the provider: configure_livekit() builds + registers a
     # global provider for you (used here). To use your own provider, construct
     # LiveKitLangSmithSpanProcessor(...), add it to that provider, and register
     # it with LiveKit via livekit.agents.telemetry.set_tracer_provider(...).
     if os.environ.get("LANGSMITH_API_KEY"):
-        processor = configure_livekit(
+        configure_livekit(
             project=project_name,
         )
         print("[livekit] LangSmith OTel tracing enabled.", file=sys.stderr)
     else:
-        processor = None
         print(
             "[livekit] LANGSMITH_API_KEY not set — running without tracing.",
             file=sys.stderr,
@@ -149,25 +147,9 @@ def run(project_name: str) -> None:
             """Get the current weather for a single city. Call once per city."""
             return await fetch_weather(city)
 
-    async def _on_session_end(ctx: agents.JobContext) -> None:
-        """Hand the finished recording to LangSmith.
-
-        By now LiveKit's recorder has closed, so the session report carries the
-        finished audio file *and* the wall-clock instant its first sample was
-        captured. That origin is the point: the recorder starts inside
-        ``session.start()``, seconds after the trace root begins, so without it
-        the trace audio player assumes the two coincide and playback runs ahead
-        of the waterfall. The report's chat history also becomes the root
-        transcript, tool calls included.
-        """
-        if processor is not None:
-            processor.attach_session_report(
-                ctx.make_session_report(), thread_id=ctx.job.id
-            )
-
     server = agents.AgentServer()
 
-    @server.rtc_session(on_session_end=_on_session_end)
+    @server.rtc_session()
     async def _entrypoint(ctx: agents.JobContext) -> None:
         # ctx.job.id is unique per dispatch; ctx.room.name is "console" in
         # console mode and would collide every session into one giant thread.
@@ -180,10 +162,8 @@ def run(project_name: str) -> None:
             room_options=room_io.RoomOptions(),
             # Turns on LiveKit's session audio recording. In console mode the
             # recorder only *starts* when the `--record` CLI flag is set (forced
-            # into argv below). The finished recording reaches LangSmith through
-            # `_on_session_end` above, which works the same in a deployed worker
-            # — nothing here reads the file directly, so the ephemeral
-            # ctx.session_directory is not a problem.
+            # into argv below). The processor captures the finished recording
+            # and report automatically when the AgentSession closes.
             #
             # Note `{"audio": True}` is equivalent to `record=True`: omitted keys
             # default to True, so this also uploads traces, logs, and the

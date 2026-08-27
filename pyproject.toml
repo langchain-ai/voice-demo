@@ -36,8 +36,8 @@ adk = [
 livekit = [
     # Covers all three LiveKit backends (cascade + the two S2S variants).
     # The LangSmith LiveKit integration (span processor + its deps, e.g. cachetools).
-    # Needs attach_session_report (see [tool.uv.sources] — resolved from the
-    # local checkout while that lands).
+    # Needs automatic session-report capture (see [tool.uv.sources] — resolved
+    # from the local checkout while that lands).
     "langsmith[livekit]>=0.10.14",
     # The agent is LiveKit-native (no LangChain brain): the cascade backend uses
     # assemblyai = STT and cartesia = TTS, openai = the LLM stage (and the
@@ -87,7 +87,7 @@ packages = ["src/voice_demo"]
 
 [tool.uv.sources]
 # Resolve `langsmith` from the local SDK checkout rather than PyPI, so this demo
-# exercises the in-development LiveKit integration (attach_session_report and
-# the audio/timeline alignment metadata it stamps). Drop this block once those
-# land in a published release.
+# exercises the in-development LiveKit integration (automatic session-report
+# capture and the audio/timeline alignment metadata it stamps). Drop this block
+# once those land in a published release.
 langsmith = { path = "../langsmith-sdk/python", editable = true }

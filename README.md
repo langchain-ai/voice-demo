@@ -74,10 +74,10 @@ uv run voice-demo --backend pipecat-with-gemini-live
 Each backend opens your local mic and speaker.
 
 The `livekit-with-recording-egress` backend copies LiveKit's completed local
-recording to a separate temporary path, attaches the session report, then reads
-that separate file in the shutdown callback and calls `complete_recording`.
-Its five-second recording delay produces an offset near 5000 milliseconds for
-testing player alignment and span-click seeking.
+recording to a separate temporary path in the shutdown callback and calls
+`complete_recording`; the LangSmith processor captures the session report
+automatically. Its five-second recording delay produces an offset near 5000
+milliseconds for testing player alignment and span-click seeking.
 
 Things to try:
 

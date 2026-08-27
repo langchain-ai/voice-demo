@@ -159,14 +159,13 @@ def run(project_name: str) -> None:
     from .graph import build_graph
 
     if os.environ.get("LANGSMITH_API_KEY"):
-        processor = configure_livekit(
+        configure_livekit(
             project=project_name,
         )
         print(
             "[livekit-with-langgraph] LangSmith OTel tracing enabled.", file=sys.stderr
         )
     else:
-        processor = None
         print(
             "[livekit-with-langgraph] LANGSMITH_API_KEY not set — running without tracing.",
             file=sys.stderr,
@@ -242,25 +241,9 @@ def run(project_name: str) -> None:
                     # into ChatContext after playout — closing the loop.
                     yield text
 
-    async def _on_session_end(ctx: agents.JobContext) -> None:
-        """Hand the finished recording to LangSmith.
-
-        By now LiveKit's recorder has closed, so the session report carries the
-        finished audio file *and* the wall-clock instant its first sample was
-        captured. That origin is the point: the recorder starts inside
-        ``session.start()``, seconds after the trace root begins, so without it
-        the trace audio player assumes the two coincide and playback runs ahead
-        of the waterfall. The report's chat history also becomes the root
-        transcript, tool calls included.
-        """
-        if processor is not None:
-            processor.attach_session_report(
-                ctx.make_session_report(), thread_id=ctx.job.id
-            )
-
     server = agents.AgentServer()
 
-    @server.rtc_session(on_session_end=_on_session_end)
+    @server.rtc_session()
     async def _entrypoint(ctx: agents.JobContext) -> None:
         set_thread_id(ctx.job.id)
 

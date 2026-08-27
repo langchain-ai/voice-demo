@@ -89,50 +89,31 @@ def run(project_name: str) -> None:
             """Get the current weather for a single city. Call once per city."""
             return await fetch_weather(city)
 
-    completed_egress: dict[
-        str, tuple[tempfile.TemporaryDirectory[str], Path, float | None]
-    ] = {}
-
-    async def _on_session_end(ctx: agents.JobContext) -> None:
-        if processor is None:
-            return
-
-        report = ctx.make_session_report()
-        processor.attach_session_report(report, thread_id=ctx.job.id)
-
-        report_path = report.audio_recording_path
-        if report_path is None:
-            return
-
-        directory = tempfile.TemporaryDirectory(prefix="voice-demo-egress-")
-        egress_path = Path(directory.name, "egress-recording.ogg").resolve()
-        shutil.copyfile(Path(report_path).resolve(), egress_path)
-        completed_egress[ctx.job.id] = (
-            directory,
-            egress_path,
-            report.audio_recording_started_at,
-        )
-
     server = agents.AgentServer()
 
-    @server.rtc_session(on_session_end=_on_session_end)
+    @server.rtc_session()
     async def _entrypoint(ctx: agents.JobContext) -> None:
         thread_id = ctx.job.id
         set_thread_id(thread_id)
 
         async def _attach_egress_recording() -> None:
-            completed = completed_egress.pop(thread_id, None)
-            if completed is None or processor is None:
+            if processor is None:
                 return
-            directory, egress_path, started_at = completed
-            try:
+
+            report = ctx.make_session_report()
+            report_path = report.audio_recording_path
+            if report_path is None:
+                processor.complete_recording(thread_id, None)
+                return
+
+            with tempfile.TemporaryDirectory(prefix="voice-demo-egress-") as directory:
+                egress_path = Path(directory, "egress-recording.ogg").resolve()
+                shutil.copyfile(Path(report_path).resolve(), egress_path)
                 processor.complete_recording(
                     thread_id,
                     data=egress_path.read_bytes(),
-                    started_at=started_at,
+                    started_at=report.audio_recording_started_at,
                 )
-            finally:
-                directory.cleanup()
 
         ctx.add_shutdown_callback(_attach_egress_recording)
 

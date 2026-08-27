@@ -20,7 +20,6 @@ import os
 import sys
 
 
-
 def run(project_name: str) -> None:
     """Launch a LiveKit console agent (OpenAI Realtime). Blocks until Ctrl-C.
 
@@ -78,25 +77,9 @@ def run(project_name: str) -> None:
             """Get the current weather for a single city. Call once per city."""
             return await fetch_weather(city)
 
-    async def _on_session_end(ctx: agents.JobContext) -> None:
-        """Hand the finished recording to LangSmith.
-
-        By now LiveKit's recorder has closed, so the session report carries the
-        finished audio file *and* the wall-clock instant its first sample was
-        captured. That origin is the point: the recorder starts inside
-        ``session.start()``, seconds after the trace root begins, so without it
-        the trace audio player assumes the two coincide and playback runs ahead
-        of the waterfall. The report's chat history also becomes the root
-        transcript, tool calls included.
-        """
-        if processor is not None:
-            processor.attach_session_report(
-                ctx.make_session_report(), thread_id=ctx.job.id
-            )
-
     server = agents.AgentServer()
 
-    @server.rtc_session(on_session_end=_on_session_end)
+    @server.rtc_session()
     async def _entrypoint(ctx: agents.JobContext) -> None:
         # ctx.job.id is unique per dispatch; ctx.room.name is "console" in
         # console mode and would collide every session into one giant thread.
