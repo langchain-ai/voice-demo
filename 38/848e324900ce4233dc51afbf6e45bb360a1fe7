@@ -1,0 +1,29 @@
+src/workshop/livekit_agent_langsmith.ipynb
+  s_728508611677b0::t_bebff295561e82 95,105,107
+src/voice_demo/livekit_with_openai_realtime/agent.py
+  s_728508611677b0::t_ea5e5a57b03050 84-85
+src/voice_demo/livekit_with_langgraph/agent.py
+  s_728508611677b0::t_bebff295561e82 157
+src/voice_demo/livekit_with_recording_egress/agent.py
+  s_728508611677b0::t_ea5e5a57b03050 96
+src/voice_demo/livekit/agent.py
+  s_728508611677b0::t_bebff295561e82 83
+src/voice_demo/livekit_with_gemini_live/agent.py
+  s_728508611677b0::t_ea5e5a57b03050 82-83
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.0",
+  "base_commit_sha": "38848e324900ce4233dc51afbf6e45bb360a1fe7",
+  "prompts": {},
+  "sessions": {
+    "s_728508611677b0": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a04508-d615-7143-bb9b-b241084b88e2",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Caroline di Vittorio <43390382+carolinedivittorio@users.noreply.github.com>"
+    }
+  }
+}
