@@ -4,6 +4,7 @@ Each backend traces under a project name derived from a single prefix, so they
 sit next to each other in the LangSmith UI:
 
     voice-demo-openai
+    voice-demo-openai-live
     voice-demo-openai-agents
     voice-demo-gemini
     voice-demo-adk
@@ -22,8 +23,10 @@ There are two tracing paths (see each backend's own module docstring for why):
     framework in-process that emits its own OTel spans; the LangSmith
     integrations translate and export those (`langsmith.integrations.{livekit,
     pipecat}`).
-  * SDK  — OpenAI Realtime, raw Gemini Live, and ADK Live consume a remote event
-    stream and build the trace themselves with the LangSmith SDK (`RunTree`).
+  * SDK  — OpenAI Realtime, GPT-Live, raw Gemini Live, and ADK Live consume a
+    remote event stream and build the trace themselves with the LangSmith SDK
+    (`RunTree`). GPT-Live has its own event adapter because its API contract is
+    different from OpenAI Realtime.
 
 Either way the integrations read LangSmith config (API key, project, endpoint)
 from the standard `LANGSMITH_*` environment, so this module only sets those.
@@ -37,6 +40,7 @@ from typing import Literal
 
 Backend = Literal[
     "openai",
+    "openai-live",
     "openai-agents",
     "gemini",
     "adk",

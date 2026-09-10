@@ -154,6 +154,7 @@ def run(project_name: str) -> None:
     )
 
     from ..prompts import GREETING, SYSTEM_PROMPT
+    from ..livekit_console import run_livekit_console
     from langsmith.integrations.livekit import configure_livekit
 
     from .graph import build_graph
@@ -191,7 +192,10 @@ def run(project_name: str) -> None:
             llm=lk_openai.LLM(model=LLM_MODEL, temperature=0.3),
             tts=cartesia.TTS(**tts_kwargs),
             vad=silero.VAD.load(),
-            turn_handling=TurnHandlingOptions(turn_detection=MultilingualModel()),
+            turn_handling=TurnHandlingOptions(
+                turn_detection=MultilingualModel(),
+                interruption={"mode": "vad"},
+            ),
         )
 
     class _Assistant(Agent):
@@ -262,5 +266,4 @@ def run(project_name: str) -> None:
         # message in ChatContext.
         await session.say(GREETING)
 
-    sys.argv = [sys.argv[0], "console", "--record"]
-    agents.cli.run_app(server)
+    run_livekit_console(server)

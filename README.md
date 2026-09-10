@@ -9,6 +9,7 @@ This repo implements a variety of voice agent backends across different framewor
 | `--backend` | Stack |
 |---|---|
 | `openai` | OpenAI Realtime, raw WebSocket |
+| `openai-live` | GPT-Live 1, raw WebSocket + delegated Responses weather agent |
 | `openai-agents` | OpenAI Realtime, via the Agents SDK |
 | `gemini` | Gemini Live, raw WebSocket via the official `google-genai` SDK |
 | `adk` | Google ADK Live (Gemini) |
@@ -56,6 +57,7 @@ Fill in `.env` with your own API keys.
 
 ```bash
 uv run voice-demo --backend openai
+uv run voice-demo --backend openai-live
 uv run voice-demo --backend openai-agents
 uv run voice-demo --backend gemini
 uv run voice-demo --backend adk
@@ -71,6 +73,15 @@ uv run voice-demo --backend pipecat-with-gemini-live
 
 Each backend opens your local mic and speaker.
 
+LiveKit uses the system-default audio devices. To select one explicitly, pass
+its numeric ID or a name substring through the LiveKit device variables:
+
+```bash
+LIVEKIT_OUTPUT_DEVICE="MacBook Pro Speakers" uv run voice-demo --backend livekit
+```
+
+List the available IDs and names with `uv run python -m sounddevice`.
+
 Things to try:
 
 - "What's the weather in Tokyo?"
@@ -78,14 +89,19 @@ Things to try:
 - Interrupt the agent while it's talking — watch it stop and listen.
 
 Traces land in a LangSmith project per backend: `voice-demo-openai`,
-`voice-demo-gemini`, `voice-demo-adk`, `voice-demo-livekit`, and so on. Override the name with
+`voice-demo-openai-live`, `voice-demo-gemini`, `voice-demo-adk`,
+`voice-demo-livekit`, and so on. Override the name with
 `--project`, or pass `--debug` for verbose tracing logs.
 
 ## How the tracing works
 
-All tracing comes from the published LangSmith SDK's voice integrations, under
-`langsmith.integrations`. Each backend wires one up in a single line that leaves
-the app's own event loop untouched.
+Most tracing comes from the published LangSmith SDK's voice integrations under
+`langsmith.integrations`. GPT-Live is the exception: the current OpenAI Realtime
+integration recognizes Realtime's event contract, not GPT-Live's `session.*`
+events and nested `response.event` envelopes. The `openai-live` backend therefore
+creates equivalent LangSmith session, delegation, model, and tool runs directly
+from the Live event stream. OpenAI's delegated Responses request runs server-side,
+so wrapping the local OpenAI client would not capture it.
 
 ## Layout
 
@@ -98,7 +114,7 @@ src/voice_demo/
 ├── prompts.py     # shared system prompt + greeting
 ├── weather.py     # shared Open-Meteo lookup (no API key)
 │
-├── openai/, openai_agents/, gemini/, adk/  # event-stream backends (each has an agent.py)
+├── openai/, openai_live/, openai_agents/, gemini/, adk/  # event-stream backends
 └── livekit*/, pipecat*/                     # in-process backends (each has an agent.py)
 ```
 
