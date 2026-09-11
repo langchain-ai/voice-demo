@@ -1,8 +1,9 @@
 """Entry point: `voice-demo --backend <name>`.
 
-Backends: openai · openai-agents · gemini · adk · livekit · livekit-with-openai-realtime ·
-livekit-with-gemini-live · pipecat · pipecat-with-langgraph ·
-pipecat-with-openai-realtime · pipecat-with-gemini-live. The
+Backends: openai · openai-live · openai-agents · gemini · adk · livekit ·
+livekit-with-openai-realtime · livekit-with-gemini-live · pipecat ·
+pipecat-with-langgraph · pipecat-with-openai-realtime ·
+pipecat-with-gemini-live. The
 `*-with-openai-realtime` / `*-with-gemini-live` / `livekit-with-*` backends swap
 their framework's STT→LLM→TTS cascade for a speech-to-speech realtime model
 (OpenAI Realtime / Gemini Live); `pipecat` uses Pipecat's stock OpenAI LLM
@@ -22,7 +23,7 @@ frameworks, so for those we just wire the tracer and hand control over.
 
 Each backend lazily imports its framework, so a missing optional dependency for
 one backend doesn't break the others. `uv sync --extra openai` is enough to run
-the OpenAI backend.
+the raw OpenAI Realtime and GPT-Live backends.
 """
 
 from __future__ import annotations
@@ -72,6 +73,7 @@ def main() -> None:
         required=True,
         choices=(
             "openai",
+            "openai-live",
             "openai-agents",
             "gemini",
             "adk",
@@ -109,6 +111,13 @@ def main() -> None:
         from .openai.agent import run as run_openai
 
         _run_console_backend(run_openai, project)
+
+    elif args.backend == "openai-live":
+        # GPT-Live's full-duplex voice frontend delegates weather reasoning and
+        # tool selection to a Responses backend over the separate Live API.
+        from .openai_live.agent import run as run_openai_live
+
+        _run_console_backend(run_openai_live, project)
 
     elif args.backend == "openai-agents":
         # Same OpenAI Realtime model as `openai`, but driven through the OpenAI

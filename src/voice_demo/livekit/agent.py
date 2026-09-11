@@ -80,6 +80,7 @@ def run(project_name: str) -> None:
     )
 
     from ..prompts import GREETING, SYSTEM_PROMPT
+    from ..livekit_console import run_livekit_console
     from langsmith.integrations.livekit import configure_livekit
     from ..weather import fetch_weather
 
@@ -133,7 +134,13 @@ def run(project_name: str) -> None:
             vad=silero.VAD.load(),
             # livekit-agents >=1.6 replaced the top-level ``turn_detection`` arg
             # with ``turn_handling=TurnHandlingOptions(...)``.
-            turn_handling=TurnHandlingOptions(turn_detection=MultilingualModel()),
+            # LiveKit 1.8 enables its cloud adaptive-interruption service in
+            # development mode. This local demo has a VAD already, so use it
+            # directly without requiring LiveKit Cloud inference credentials.
+            turn_handling=TurnHandlingOptions(
+                turn_detection=MultilingualModel(),
+                interruption={"mode": "vad"},
+            ),
         )
 
     class _Assistant(Agent):
@@ -176,5 +183,4 @@ def run(project_name: str) -> None:
     # gets a local mic+speaker session without having to remember the subcommand,
     # plus `--record` (the console flag that writes the recording to a local file
     # for the processor to attach — see the record={"audio": True} note above).
-    sys.argv = [sys.argv[0], "console", "--record"]
-    agents.cli.run_app(server)
+    run_livekit_console(server)

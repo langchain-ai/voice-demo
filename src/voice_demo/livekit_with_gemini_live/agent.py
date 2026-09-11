@@ -40,6 +40,7 @@ def run(project_name: str) -> None:
     from livekit.agents import Agent, AgentSession, function_tool, room_io
 
     from ..prompts import GREETING, SYSTEM_PROMPT
+    from ..livekit_console import run_livekit_console
     from langsmith.integrations.livekit import configure_livekit, set_thread_id
     from ..weather import fetch_weather
 
@@ -101,5 +102,4 @@ def run(project_name: str) -> None:
     # Force `console` + `--record` so the user gets a local mic+speaker session
     # with recording without remembering the subcommand. LiveKit's CLI owns argv
     # from here. (See livekit/agent.py for the full explanation.)
-    sys.argv = [sys.argv[0], "console", "--record"]
-    agents.cli.run_app(server)
+    run_livekit_console(server)
