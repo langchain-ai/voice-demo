@@ -1,4 +1,4 @@
-"""GPT-Live 1 weather agent over a raw server-side WebSocket.
+"""GPT-Live 1 weather agent over the official OpenAI Live SDK connection.
 
 GPT-Live owns the full-duplex spoken conversation. A delegated Responses model
 does the weather reasoning and selects the local ``lookup_weather`` function.
@@ -21,19 +21,21 @@ from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
 from typing import Any
 
-from websockets.asyncio.client import connect
+from openai import AsyncOpenAI
+from openai.resources.live.live import AsyncLiveConnection
+from openai.types.live.function_tool_param import FunctionToolParam
+from openai.types.live.session_config_param import SessionConfigParam
+from openai.types.responses.response_input_item_param import ResponseInputItemParam
 
 from ..audio import AudioInput, AudioOutput
 from ..console import NullUI, StatusUI, frame_level
 from .tools import execute_tool
 from .tracing import LiveTracer
 
-LIVE_URL = "wss://api.openai.com/v1/live/sessions"
 LIVE_MODEL = "gpt-live-1"
 BACKEND_MODEL = os.getenv("OPENAI_LIVE_BACKEND_MODEL", "gpt-5.6-luna")
 SAMPLE_RATE = 24_000
 MAX_EVENT_BYTES = 4 * 1024 * 1024
-MAX_OUTBOUND_BYTES = 512 * 1024
 MAX_PENDING_RESPONSES = 64
 MAX_TOOL_CALLS_PER_RESPONSE = 16
 MAX_TRANSCRIPT_CHARS = 4_000
@@ -48,7 +50,7 @@ Call lookup_weather exactly once for each requested city, including every city
 in a comparison. Never invent current conditions. After the tool results arrive,
 return a concise, natural summary that is easy to say aloud."""
 
-WEATHER_TOOL = {
+WEATHER_TOOL: FunctionToolParam = {
     "type": "function",
     "name": "lookup_weather",
     "description": (
@@ -70,7 +72,7 @@ WEATHER_TOOL = {
 }
 
 
-def session_config() -> dict[str, Any]:
+def session_config() -> SessionConfigParam:
     """Return the immutable GPT-Live startup configuration."""
     return {
         "model": LIVE_MODEL,
@@ -154,13 +156,13 @@ class LiveEventProcessor:
     def __init__(
         self,
         *,
-        send_event: Callable[[dict[str, Any]], Awaitable[None]],
+        connection: AsyncLiveConnection,
         audio_out: AudioOutput,
         ui: StatusUI,
         tracer: LiveTracer,
         tool_runner: Callable[[str, str], Awaitable[dict[str, Any]]] = execute_tool,
     ) -> None:
-        self.send_event = send_event
+        self.connection = connection
         self.audio_out = audio_out
         self.ui = ui
         self.tracer = tracer
@@ -349,20 +351,18 @@ class LiveEventProcessor:
         # appended before the single response.create that continues the backend.
         results = await asyncio.gather(*(run_one(call) for call in state.tool_calls))
         for call, result in zip(state.tool_calls, results, strict=True):
-            await self.send_event(
-                {
-                    "type": "response.item.create",
-                    "event_id": f"tool_result_{uuid.uuid4().hex}",
-                    "item": {
-                        "type": "function_call_output",
-                        "call_id": call.call_id,
-                        "output": json.dumps(result, separators=(",", ":")),
-                    },
-                }
+            item: ResponseInputItemParam = {
+                "type": "function_call_output",
+                "call_id": call.call_id,
+                "output": json.dumps(result, separators=(",", ":")),
+            }
+            await self.connection.response.item.create(
+                event_id=f"tool_result_{uuid.uuid4().hex}",
+                item=item,
             )
         self.ui.set_state("thinking")
-        await self.send_event(
-            {"type": "response.create", "event_id": f"continue_{uuid.uuid4().hex}"}
+        await self.connection.response.create(
+            event_id=f"continue_{uuid.uuid4().hex}"
         )
 
     def _remember_completed(self, key: tuple[str, str]) -> None:
@@ -394,6 +394,7 @@ async def run(
         thread_id=thread_id,
         live_model=LIVE_MODEL,
         backend_model=BACKEND_MODEL,
+        sample_rate=SAMPLE_RATE,
     )
     tracer.start()
     ui.log(f"[openai-live] thread_id={thread_id}")
@@ -416,92 +417,81 @@ async def run(
         pass
 
     try:
-        async with connect(
-            LIVE_URL,
-            additional_headers={"Authorization": f"Bearer {api_key}"},
-            compression=None,
-            max_size=MAX_EVENT_BYTES,
-            max_queue=32,
-            open_timeout=15,
-            close_timeout=10,
-        ) as websocket:
-
-            async def send_event(event: dict[str, Any]) -> None:
-                encoded = json.dumps(event, separators=(",", ":"))
-                if len(encoded.encode("utf-8")) > MAX_OUTBOUND_BYTES:
-                    raise LiveAPIError("outbound GPT-Live event is too large")
-                async with send_lock:
-                    await websocket.send(encoded)
-
-            processor = LiveEventProcessor(
-                send_event=send_event,
-                audio_out=audio_out,
-                ui=ui,
-                tracer=tracer,
-            )
-            await send_event(
-                {
-                    "type": "session.start",
-                    "event_id": f"start_{uuid.uuid4().hex}",
-                    "session": session_config(),
+        async with AsyncOpenAI(api_key=api_key) as client:
+            async with client.live.connect(
+                websocket_connection_options={
+                    "compression": None,
+                    "max_size": MAX_EVENT_BYTES,
+                    "max_queue": 32,
                 }
-            )
+            ) as connection:
+                processor = LiveEventProcessor(
+                    connection=connection,
+                    audio_out=audio_out,
+                    ui=ui,
+                    tracer=tracer,
+                )
+                await connection.session.start(
+                    event_id=f"start_{uuid.uuid4().hex}",
+                    session=session_config(),
+                )
 
-            audio_in.start()
-            audio_out.start()
+                # Capture the assistant at the speaker callback, not when bytes
+                # arrive from the network. Buffered audio dropped on interruption
+                # therefore never enters the trace because it was never heard.
+                audio_out.set_played_callback(tracer.record_agent_audio)
+                audio_in.start()
+                audio_out.start()
 
-            async def pump_mic() -> None:
-                await processor.started.wait()
-                pending = b""
-                async for frame in audio_in.frames():
-                    if closing.is_set():
-                        return
-                    chunk = pending + frame
-                    complete = len(chunk) - len(chunk) % 2
-                    pending = chunk[complete:]
-                    if not complete:
-                        continue
-                    await send_event(
-                        {
-                            "type": "session.input_audio.append",
-                            "audio": base64.b64encode(chunk[:complete]).decode("ascii"),
-                        }
-                    )
-                    ui.update_level(frame_level(frame))
+                async def pump_mic() -> None:
+                    await processor.started.wait()
+                    pending = b""
+                    async for frame in audio_in.frames():
+                        if closing.is_set():
+                            return
+                        chunk = pending + frame
+                        complete = len(chunk) - len(chunk) % 2
+                        pending = chunk[complete:]
+                        if not complete:
+                            continue
+                        sent_audio = chunk[:complete]
+                        async with send_lock:
+                            await connection.session.input_audio.append(
+                                audio=base64.b64encode(sent_audio).decode("ascii")
+                            )
+                        tracer.record_user_audio(sent_audio)
+                        ui.update_level(frame_level(frame))
 
-            async def receive_events() -> None:
-                async for raw in websocket:
-                    if not isinstance(raw, str):
-                        raise LiveAPIError("GPT-Live returned a binary control message")
-                    try:
-                        event = json.loads(raw)
-                    except json.JSONDecodeError as exc:
-                        raise LiveAPIError("GPT-Live returned invalid JSON") from exc
-                    if not isinstance(event, dict):
-                        raise LiveAPIError("GPT-Live returned a non-object event")
-                    if not await processor.handle(event):
-                        return
+                async def receive_events() -> None:
+                    async for event in connection:
+                        event_data = event.model_dump(mode="python")
+                        if not await processor.handle(event_data):
+                            return
 
-            async def close_on_request() -> None:
-                await close_requested.wait()
-                closing.set()
-                await asyncio.wait_for(processor.started.wait(), timeout=15)
-                await send_event({"type": "session.close"})
-                await asyncio.wait_for(processor.finalized.wait(), timeout=15)
+                async def close_on_request() -> None:
+                    await close_requested.wait()
+                    closing.set()
+                    await asyncio.wait_for(processor.started.wait(), timeout=15)
+                    async with send_lock:
+                        await connection.session.close(
+                            event_id=f"close_{uuid.uuid4().hex}"
+                        )
+                    await asyncio.wait_for(processor.finalized.wait(), timeout=15)
 
-            mic_task = asyncio.create_task(pump_mic())
-            receiver_task = asyncio.create_task(receive_events())
-            closer_task = asyncio.create_task(close_on_request())
+                mic_task = asyncio.create_task(pump_mic())
+                receiver_task = asyncio.create_task(receive_events())
+                closer_task = asyncio.create_task(close_on_request())
 
-            done, _ = await asyncio.wait(
-                {receiver_task, closer_task}, return_when=asyncio.FIRST_COMPLETED
-            )
-            for task in done:
-                error = task.exception()
-                if error is not None:
-                    raise error
-            if receiver_task in done and not processor.finalized.is_set():
-                raise LiveAPIError("connection closed before session.closed")
+                done, _ = await asyncio.wait(
+                    {receiver_task, closer_task},
+                    return_when=asyncio.FIRST_COMPLETED,
+                )
+                for task in done:
+                    error = task.exception()
+                    if error is not None:
+                        raise error
+                if receiver_task in done and not processor.finalized.is_set():
+                    raise LiveAPIError("connection closed before session.closed")
 
     except asyncio.CancelledError:
         trace_error = "session cancelled"
@@ -526,5 +516,6 @@ async def run(
             loop.remove_signal_handler(signal.SIGINT)
         audio_in.stop()
         audio_out.stop()
+        audio_out.set_played_callback(None)
         tracer.finish(error=trace_error)
         ui.finish()

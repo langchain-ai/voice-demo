@@ -1,8 +1,11 @@
 from __future__ import annotations
 
+import io
 import json
 import unittest
+import wave
 from typing import Any
+from unittest.mock import patch
 
 from voice_demo.openai_live.agent import (
     LiveEventProcessor,
@@ -18,6 +21,7 @@ class _AudioOut:
 
     def __init__(self) -> None:
         self.audio: list[bytes] = []
+        self.played_callback = None
 
     def start(self) -> None:  # pragma: no cover - protocol fixture
         pass
@@ -32,7 +36,7 @@ class _AudioOut:
         self.audio.clear()
 
     def set_played_callback(self, callback) -> None:  # noqa: ANN001
-        pass
+        self.played_callback = callback
 
     def stop(self) -> None:  # pragma: no cover - protocol fixture
         pass
@@ -62,8 +66,59 @@ def _tracer() -> LiveTracer:
         thread_id="thread",
         live_model="gpt-live-1",
         backend_model="gpt-5.6-luna",
+        sample_rate=24_000,
         enabled=False,
     )
+
+
+class _ResponseItem:
+    def __init__(self, sent: list[dict[str, Any]]) -> None:
+        self.sent = sent
+
+    async def create(self, *, item: dict[str, Any], event_id: str) -> None:
+        self.sent.append(
+            {"type": "response.item.create", "event_id": event_id, "item": item}
+        )
+
+
+class _Response:
+    def __init__(self, sent: list[dict[str, Any]]) -> None:
+        self.sent = sent
+        self.item = _ResponseItem(sent)
+
+    async def create(self, *, event_id: str) -> None:
+        self.sent.append({"type": "response.create", "event_id": event_id})
+
+
+class _Connection:
+    def __init__(self, sent: list[dict[str, Any]]) -> None:
+        self.response = _Response(sent)
+
+
+class _FakeRun:
+    def __init__(self) -> None:
+        self.attachments: dict[str, tuple[str, bytes]] = {}
+        self.metadata: dict[str, Any] = {}
+        self.outputs: dict[str, Any] = {}
+        self.error: str | None = None
+
+    def post(self) -> None:
+        pass
+
+    def add_metadata(self, metadata: dict[str, Any]) -> None:
+        self.metadata.update(metadata)
+
+    def end(
+        self,
+        *,
+        outputs: dict[str, Any] | None = None,
+        error: str | None = None,
+    ) -> None:
+        self.outputs = outputs or {}
+        self.error = error
+
+    def patch(self) -> None:
+        pass
 
 
 class SessionConfigTests(unittest.TestCase):
@@ -104,15 +159,12 @@ class EventProcessorTests(unittest.IsolatedAsyncioTestCase):
         sent: list[dict[str, Any]] = []
         calls: list[tuple[str, str]] = []
 
-        async def send(event: dict[str, Any]) -> None:
-            sent.append(event)
-
         async def run_tool(name: str, arguments: str) -> dict[str, Any]:
             calls.append((name, arguments))
             return {"ok": json.loads(arguments)["city"]}
 
         processor = LiveEventProcessor(
-            send_event=send,
+            connection=_Connection(sent),  # type: ignore[arg-type]
             audio_out=_AudioOut(),
             ui=_UI(),
             tracer=_tracer(),
@@ -172,16 +224,40 @@ class EventProcessorTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(sent[1]["item"]["call_id"], "call-2")
 
     async def test_unknown_events_are_ignored(self) -> None:
-        async def send(event: dict[str, Any]) -> None:
-            raise AssertionError(event)
-
         processor = LiveEventProcessor(
-            send_event=send,
+            connection=_Connection([]),  # type: ignore[arg-type]
             audio_out=_AudioOut(),
             ui=_UI(),
             tracer=_tracer(),
         )
         self.assertTrue(await processor.handle({"type": "future.event"}))
+
+
+class TracingTests(unittest.TestCase):
+    def test_attaches_stereo_conversation_wav(self) -> None:
+        run = _FakeRun()
+        with patch("voice_demo.openai_live.tracing.RunTree", return_value=run):
+            tracer = LiveTracer(
+                project_name="test",
+                thread_id="thread",
+                live_model="gpt-live-1",
+                backend_model="gpt-5.6-luna",
+                sample_rate=24_000,
+                enabled=True,
+            )
+            tracer.start()
+            tracer.record_user_audio(b"\x01\x00" * 240)
+            tracer.record_agent_audio(b"\x02\x00" * 240)
+            tracer.finish()
+
+        mime_type, data = run.attachments["conversation"]
+        self.assertEqual(mime_type, "audio/wav")
+        with wave.open(io.BytesIO(data), "rb") as recording:
+            self.assertEqual(recording.getnchannels(), 2)
+            self.assertEqual(recording.getsampwidth(), 2)
+            self.assertEqual(recording.getframerate(), 24_000)
+            self.assertGreaterEqual(recording.getnframes(), 240)
+            self.assertTrue(any(recording.readframes(recording.getnframes())))
 
 
 if __name__ == "__main__":

@@ -8,12 +8,19 @@ server, so wrapping a local OpenAI client cannot observe it.
 
 This small adapter records the boundaries the application can actually see:
 one Live session, each delegation, every delegated model response, and local
-tool execution. Raw audio and credentials never enter trace payloads.
+tool execution. A bounded stereo WAV is attached to the session root (user on
+the left, assistant audio actually played on the right); audio and credentials
+never enter JSON trace payloads.
 """
 
 from __future__ import annotations
 
+import array
+import io
 import os
+import threading
+import time
+import wave
 from dataclasses import dataclass, field
 from typing import Any, Awaitable, Callable, TypeVar
 
@@ -23,8 +30,119 @@ MAX_TRANSCRIPT_CHARS = 20_000
 MAX_MODEL_TEXT_CHARS = 12_000
 MAX_TOOL_CALLS_PER_RESPONSE = 16
 MAX_OPEN_RUNS = 64
+MAX_AUDIO_SECONDS = 10 * 60
 
 T = TypeVar("T")
+
+
+def _layout_audio(
+    chunks: list[tuple[float, bytes]], sample_rate: int
+) -> list[tuple[float, bytes]]:
+    """Place bursty PCM chunks at natural playback time without overlap."""
+    laid_out: list[tuple[float, bytes]] = []
+    cursor = 0.0
+    for index, (received_at, data) in enumerate(chunks):
+        cursor = received_at if index == 0 else max(cursor, received_at)
+        laid_out.append((cursor, data))
+        cursor += (len(data) // 2) / sample_rate
+    return laid_out
+
+
+def _build_stereo_wav(
+    user_chunks: list[tuple[float, bytes]],
+    agent_chunks: list[tuple[float, bytes]],
+    sample_rate: int,
+) -> bytes:
+    """Build a user-left/assistant-right PCM16 WAV from timestamped chunks."""
+    if not user_chunks and not agent_chunks:
+        return b""
+    user = _layout_audio(user_chunks, sample_rate)
+    agent = _layout_audio(agent_chunks, sample_rate)
+
+    def end_time(chunks: list[tuple[float, bytes]]) -> float:
+        return max(
+            (offset + (len(data) // 2) / sample_rate for offset, data in chunks),
+            default=0.0,
+        )
+
+    total_samples = min(
+        int(max(end_time(user), end_time(agent)) * sample_rate + 0.999),
+        MAX_AUDIO_SECONDS * sample_rate,
+    )
+    if total_samples <= 0:
+        return b""
+
+    def channel(chunks: list[tuple[float, bytes]]) -> array.array[int]:
+        samples = array.array("h", bytes(total_samples * 2))
+        for offset, data in chunks:
+            start = int(offset * sample_rate)
+            chunk = array.array("h")
+            chunk.frombytes(data[: len(data) - len(data) % 2])
+            count = min(len(chunk), total_samples - start)
+            if count > 0:
+                samples[start : start + count] = chunk[:count]
+        return samples
+
+    left = channel(user)
+    right = channel(agent)
+    stereo = array.array("h", bytes(total_samples * 4))
+    stereo[0::2] = left
+    stereo[1::2] = right
+    output = io.BytesIO()
+    with wave.open(output, "wb") as wav:
+        wav.setnchannels(2)
+        wav.setsampwidth(2)
+        wav.setframerate(sample_rate)
+        wav.writeframes(stereo.tobytes())
+    return output.getvalue()
+
+
+class _ConversationAudio:
+    """Thread-safe, duration-bounded PCM capture for one trace attachment."""
+
+    def __init__(self, sample_rate: int) -> None:
+        self.sample_rate = sample_rate
+        self.started_at = time.monotonic()
+        self.max_channel_bytes = MAX_AUDIO_SECONDS * sample_rate * 2
+        self.user_chunks: list[tuple[float, bytes]] = []
+        self.agent_chunks: list[tuple[float, bytes]] = []
+        self.user_bytes = 0
+        self.agent_bytes = 0
+        self.truncated = False
+        self._lock = threading.Lock()
+
+    def record_user(self, data: bytes) -> None:
+        self._record("user", data)
+
+    def record_agent(self, data: bytes) -> None:
+        self._record("agent", data)
+
+    def _record(self, role: str, data: bytes) -> None:
+        data = data[: len(data) - len(data) % 2]
+        if not data:
+            return
+        with self._lock:
+            current = self.user_bytes if role == "user" else self.agent_bytes
+            remaining = self.max_channel_bytes - current
+            if remaining <= 0:
+                self.truncated = True
+                return
+            if len(data) > remaining:
+                data = data[: remaining - remaining % 2]
+                self.truncated = True
+            target = self.user_chunks if role == "user" else self.agent_chunks
+            target.append((time.monotonic() - self.started_at, bytes(data)))
+            if role == "user":
+                self.user_bytes += len(data)
+            else:
+                self.agent_bytes += len(data)
+
+    def build(self) -> tuple[bytes, bool]:
+        with self._lock:
+            user = list(self.user_chunks)
+            agent = list(self.agent_chunks)
+            truncated = self.truncated
+        return _build_stereo_wav(user, agent, self.sample_rate), truncated
 
 
 def _append_bounded(current: str, fragment: Any, limit: int) -> str:
@@ -85,6 +203,7 @@ class LiveTracer:
         thread_id: str,
         live_model: str,
         backend_model: str,
+        sample_rate: int,
         enabled: bool | None = None,
     ) -> None:
         self.enabled = (
@@ -96,7 +215,9 @@ class LiveTracer:
         self.thread_id = thread_id
         self.live_model = live_model
         self.backend_model = backend_model
+        self.sample_rate = sample_rate
         self.root: RunTree | None = None
+        self._audio: _ConversationAudio | None = None
         self._delegations: dict[str, RunTree] = {}
         self._models: dict[tuple[str, str], _ModelRun] = {}
         self._user_transcript = ""
@@ -106,6 +227,7 @@ class LiveTracer:
     def start(self) -> None:
         if not self.enabled:
             return
+        self._audio = _ConversationAudio(self.sample_rate)
         self.root = RunTree(
             name="gpt_live_session",
             run_type="chain",
@@ -125,6 +247,16 @@ class LiveTracer:
             },
         )
         self._safe(self.root.post)
+
+    def record_user_audio(self, data: bytes) -> None:
+        """Record PCM16 microphone bytes that were successfully sent."""
+        if self._audio is not None:
+            self._audio.record_user(data)
+
+    def record_agent_audio(self, data: bytes) -> None:
+        """Record PCM16 assistant bytes reported as played by the speaker."""
+        if self._audio is not None:
+            self._audio.record_agent(data)
 
     def add_transcript(self, role: str, delta: Any) -> None:
         if role == "user":
@@ -280,6 +412,19 @@ class LiveTracer:
         }
         if self._final_usage is not None:
             outputs["usage"] = self._final_usage
+        audio = self._audio
+        self._audio = None
+        if audio is not None:
+            try:
+                wav, truncated = audio.build()
+            except Exception:
+                wav, truncated = b"", False
+            if wav:
+                self.root.attachments = {  # type: ignore[assignment]
+                    "conversation": ("audio/wav", wav)
+                }
+            if truncated:
+                self._safe(lambda: self.root.add_metadata({"audio_truncated": True}))
         self._finish_run(self.root, outputs=outputs, error=error)
         self.root = None
 

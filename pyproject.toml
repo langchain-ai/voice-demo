@@ -17,15 +17,14 @@ dependencies = [
 
 [project.optional-dependencies]
 openai = [
-    # The raw Realtime and GPT-Live WebSocket backends use the official SDK's
-    # realtime transport dependency. GPT-Live itself is driven from its public
-    # wire protocol until the installed Python SDK exposes `client.live`.
-    "openai[realtime]>=1.50",
+    # Includes the typed Realtime and GPT-Live WebSocket clients. GPT-Live
+    # support (`client.live`) was added in the OpenAI Python SDK 3.x line.
+    "openai[realtime]>=3.6.0",
 ]
 openai-agents = [
     # Same Realtime model as the `openai` extra, driven through the Agents SDK.
-    "openai-agents[realtime]>=0.2",
-    "openai>=1.50",
+    "openai-agents[realtime]>=0.22.0",
+    "openai>=3.6.0",
 ]
 gemini = [
     # Gemini Live over google-genai's official raw WebSocket session.
@@ -84,3 +83,25 @@ build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/voice_demo"]
+
+[tool.uv]
+# LiveKit Agents 1.8 pins openai<3, while GPT-Live support starts in the
+# OpenAI Python SDK 3.x. These backends run in separate optional environments.
+conflicts = [
+    [
+        { extra = "openai" },
+        { extra = "livekit" },
+    ],
+    [
+        { extra = "openai-agents" },
+        { extra = "livekit" },
+    ],
+    [
+        { extra = "openai" },
+        { extra = "pipecat" },
+    ],
+    [
+        { extra = "openai-agents" },
+        { extra = "pipecat" },
+    ],
+]

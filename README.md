@@ -9,7 +9,7 @@ This repo implements a variety of voice agent backends across different framewor
 | `--backend` | Stack |
 |---|---|
 | `openai` | OpenAI Realtime, raw WebSocket |
-| `openai-live` | GPT-Live 1, raw WebSocket + delegated Responses weather agent |
+| `openai-live` | GPT-Live 1, official OpenAI Live SDK + delegated Responses weather agent |
 | `openai-agents` | OpenAI Realtime, via the Agents SDK |
 | `gemini` | Gemini Live, raw WebSocket via the official `google-genai` SDK |
 | `adk` | Google ADK Live (Gemini) |
@@ -44,7 +44,7 @@ live so the audio plumbing stays out of the lesson.
 Requires Python 3.11+ and [uv](https://docs.astral.sh/uv/).
 
 ```bash
-uv sync --all-extras     # or one backend's deps: --extra openai / openai-agents / gemini / adk / livekit / pipecat
+uv sync --extra openai   # or choose: openai-agents / gemini / adk / livekit / pipecat
 cp .env.example .env      # then fill in the keys below
 ```
 
@@ -101,7 +101,10 @@ integration recognizes Realtime's event contract, not GPT-Live's `session.*`
 events and nested `response.event` envelopes. The `openai-live` backend therefore
 creates equivalent LangSmith session, delegation, model, and tool runs directly
 from the Live event stream. OpenAI's delegated Responses request runs server-side,
-so wrapping the local OpenAI client would not capture it.
+so wrapping the local OpenAI client would not capture it. Its root trace also
+includes a stereo `conversation` WAV attachment: sent microphone audio is on the
+left channel, and assistant audio actually played by `SpeakerStream` is on the
+right. Audio discarded during an interruption is therefore not recorded as heard.
 
 ## Layout
 
