@@ -8,7 +8,7 @@ dependencies = [
     "sounddevice>=0.4",
     "numpy>=1.26",
     "scipy>=1.13",
-    "langsmith==0.11.2",
+    "langsmith==0.12.6",
     "httpx>=0.27",
     "pydantic>=2",
     "opentelemetry-sdk>=1.27",
@@ -31,20 +31,19 @@ gemini = [
 adk = [
     "google-adk>=2.3.0",
     "google-genai>=1.75",
-    "langsmith[google-adk]==0.11.2",
+    "langsmith[google-adk]==0.12.6",
 ]
 livekit = [
     # Covers all LiveKit backends (cascade, LangGraph, and the two S2S variants).
     # The LangSmith LiveKit integration (span processor + its deps, e.g. cachetools).
-    "langsmith[livekit]==0.11.2",
+    "langsmith[livekit]==0.12.6",
     # The agent is LiveKit-native (no LangChain brain): the cascade backend uses
     # assemblyai = STT and cartesia = TTS, openai = the LLM stage (and the
     # OpenAI Realtime model for the S2S variant); silero/turn-detector = VAD +
-    # end-of-turn detection. Floor is 1.6.4: 1.5.18 (the prior resolve) was
-    # yanked on PyPI.
-    "livekit-agents[assemblyai,cartesia,openai,silero,turn-detector]>=1.6.4",
+    # end-of-turn detection. Pin the LiveKit 1.8 telemetry release.
+    "livekit-agents[assemblyai,cartesia,openai,silero,turn-detector]==1.8.0",
     # Gemini Live (google.beta.realtime) for the livekit-with-gemini-live backend.
-    "livekit-plugins-google>=1.6.4",
+    "livekit-plugins-google==1.8.0",
     # The livekit-with-langgraph backend's "brain" is an in-process LangChain
     # agent (create_agent) over LangGraph, plugged in via an Agent.llm_node
     # override. The plain livekit backends need none of these.
@@ -57,7 +56,7 @@ pipecat = [
     # Covers all four Pipecat backends: stock OpenAI LLM, the LangGraph variant,
     # OpenAI Realtime (S2S), and Gemini Live (S2S).
     # The LangSmith Pipecat integration (span processor + its deps, e.g. cachetools).
-    "langsmith[pipecat]==0.11.2",
+    "langsmith[pipecat]==0.12.6",
     # deepgram: STT + Aura TTS for the plain cascade backend · openai: the LLM
     # stage + OpenAI Realtime services · google: Gemini Live (pulls in
     # google-genai) · local: LocalAudioTransport (mic/speaker) · tracing: the
