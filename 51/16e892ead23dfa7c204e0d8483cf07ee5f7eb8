@@ -1,0 +1,77 @@
+README.md
+  s_37bb86aaefe6aa::t_747081d9d91a05 14,50,65,80,110,125-126
+  s_37bb86aaefe6aa::t_90e540314d210f 15-16,66-67,85-91,139-141
+  s_37bb86aaefe6aa::t_beccbdb1fa275b 81-83
+  s_37bb86aaefe6aa::t_d5ac070b9e79af 84
+src/voice_demo/cli.py
+  s_37bb86aaefe6aa::t_3b2a94bcfdff02 79,134-139
+  s_37bb86aaefe6aa::t_90e540314d210f 3-4,80-81,140-152
+  s_37bb86aaefe6aa::t_f86c58a963a8a8 153
+tests/test_langvoice.py
+  s_37bb86aaefe6aa::t_260ce227718ac5 1-5,7-36,40-49
+  s_37bb86aaefe6aa::t_1e385828df1d45 6
+  s_37bb86aaefe6aa::t_8a41aac05bc1f4 37-39
+src/voice_demo/audio.py
+  s_37bb86aaefe6aa::t_8fe118b2c00b2a 121,127-130,133-159
+tests/test_langchain_voice_transports.py
+  s_37bb86aaefe6aa::t_cdac8528b773ec 1-79
+pyproject.toml
+  s_65de7377b035fe::t_9a99dea1b65403 11,42,47,67,122-124
+  s_37bb86aaefe6aa::t_3b2a94bcfdff02 29,31-34,113-119
+  s_37bb86aaefe6aa::t_1e385828df1d45 30
+  s_37bb86aaefe6aa::t_242f28b1859d7f 120
+  s_65de7377b035fe::t_fbe1d7795be426 125
+src/voice_demo/langvoice/graph.py
+  s_37bb86aaefe6aa::t_f5112fe2158532 1-42
+tests/test_audio.py
+  s_37bb86aaefe6aa::t_8fe118b2c00b2a 1-29,33-65,69-91
+  s_37bb86aaefe6aa::t_ddcadc9bd96a29 30-32,66-68
+src/voice_demo/langchain_voice_local/agent.py
+  s_37bb86aaefe6aa::t_90e540314d210f 1-32
+src/voice_demo/langvoice/__init__.py
+  s_37bb86aaefe6aa::t_f5112fe2158532 1-5
+src/voice_demo/langvoice/agent.py
+  s_37bb86aaefe6aa::t_0ff01084a665ea 12-13,25,30
+  h_3a9d271fbf3886 5,27
+  s_37bb86aaefe6aa::t_580e1a9dcadb9d 1-4,6-10,14-24,26,31-35
+  s_37bb86aaefe6aa::t_445089596af404 11,28-29
+src/voice_demo/langchain_voice_local/__init__.py
+  s_37bb86aaefe6aa::t_90e540314d210f 1-5
+src/voice_demo/langchain_voice_livekit/agent.py
+  s_37bb86aaefe6aa::t_90e540314d210f 1-44,46-52
+  s_37bb86aaefe6aa::t_718cbdfc5c74d6 45
+src/voice_demo/tracing.py
+  s_37bb86aaefe6aa::t_90e540314d210f 10-11,49-50
+  s_37bb86aaefe6aa::t_3b2a94bcfdff02 9,48
+src/voice_demo/langchain_voice_livekit/__init__.py
+  s_37bb86aaefe6aa::t_90e540314d210f 1-5
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "5116e892ead23dfa7c204e0d8483cf07ee5f7eb8",
+  "prompts": {},
+  "humans": {
+    "h_3a9d271fbf3886": {
+      "author": "Caroline di Vittorio <43390382+carolinedivittorio@users.noreply.github.com>"
+    }
+  },
+  "sessions": {
+    "s_37bb86aaefe6aa": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0b095-2c8e-7e13-8e36-ef72254577cc",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Caroline di Vittorio <43390382+carolinedivittorio@users.noreply.github.com>"
+    },
+    "s_65de7377b035fe": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0a724-c4c2-7c13-9072-18868fe18cde",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Caroline di Vittorio <43390382+carolinedivittorio@users.noreply.github.com>"
+    }
+  }
+}
