@@ -1,6 +1,6 @@
 """Entry point: `voice-demo --backend <name>`.
 
-Backends: openai · openai-agents · gemini · adk · livekit · livekit-with-openai-realtime ·
+Backends: deepgram · openai · openai-agents · gemini · adk · livekit · livekit-with-openai-realtime ·
 livekit-with-gemini-live · pipecat · pipecat-with-langgraph ·
 pipecat-with-openai-realtime · pipecat-with-gemini-live. The
 `*-with-openai-realtime` / `*-with-gemini-live` / `livekit-with-*` backends swap
@@ -71,6 +71,7 @@ def main() -> None:
         "--backend",
         required=True,
         choices=(
+            "deepgram",
             "openai",
             "openai-agents",
             "gemini",
@@ -105,7 +106,12 @@ def main() -> None:
 
     project = tracing.configure(args.backend, project=args.project)
 
-    if args.backend == "openai":
+    if args.backend == "deepgram":
+        from .deepgram.agent import run as run_deepgram
+
+        _run_console_backend(run_deepgram, project)
+
+    elif args.backend == "openai":
         from .openai.agent import run as run_openai
 
         _run_console_backend(run_openai, project)
