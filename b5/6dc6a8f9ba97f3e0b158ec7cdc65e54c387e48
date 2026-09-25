@@ -1,0 +1,42 @@
+.env.example
+  s_86c05ddb2edbfc::t_36f2df4725f25f 10-11
+uv.lock
+  s_86c05ddb2edbfc::t_1664afa3695420 1440,1478-1590,4111-4113,4144,4157-4160,4175
+src/voice_demo/tracing.py
+  s_86c05ddb2edbfc::t_b465829bc0f046 7,40
+src/voice_demo/cli.py
+  s_86c05ddb2edbfc::t_eab6cf47a20370 3,74,109-114
+src/voice_demo/deepgram/agent.py
+  s_86c05ddb2edbfc::t_a4ae1cda76d56c 1-6,11-15,17-23,25-32,34-42,49,58,62,64,67,72-73,75,81,86-87,89-99,101-103,105-108,112-115,122-144,147-160,163-168,171-172,177,179,182,185,188,191,194,196,203-204,207-208,210-217
+  s_bc100315524528::t_c8250de32713ba 7-10,16,24,33,43-48,50-57,59-61,63,65-66,68-71,74,76-80,82-85,88,100,104,109-111,116-121,145-146,161-162,169-170,173-176,178,180-181,183-184,186-187,189-190,192-193,195,197-202,205-206,209
+src/voice_demo/deepgram/tools.py
+  s_bc100315524528::t_c8250de32713ba 1-46
+README.md
+  s_86c05ddb2edbfc::t_e9065da0ddbe79 11,47,59,82,88-92,105
+pyproject.toml
+  s_86c05ddb2edbfc::t_3f9366e908aa51 11,19-21,37,42,62,87-89
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "b56dc6a8f9ba97f3e0b158ec7cdc65e54c387e48",
+  "prompts": {},
+  "sessions": {
+    "s_86c05ddb2edbfc": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0cf2e-b565-7912-94ea-e54e5ed32ecd",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Caroline di Vittorio <43390382+carolinedivittorio@users.noreply.github.com>"
+    },
+    "s_bc100315524528": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "fc933e38-6b8b-48e7-a142-33cb3ff2abf7",
+        "model": "claude-fable-5-1"
+      },
+      "human_author": null
+    }
+  }
+}
