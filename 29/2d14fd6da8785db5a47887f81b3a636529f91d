@@ -1,0 +1,31 @@
+pyproject.toml
+  s_86c05ddb2edbfc::t_3f9366e908aa51 11,19-21,37,42,62,87-89
+.env.example
+  s_86c05ddb2edbfc::t_36f2df4725f25f 10-11
+README.md
+  s_86c05ddb2edbfc::t_e9065da0ddbe79 11,47,59,82,88-92,105
+src/voice_demo/cli.py
+  s_86c05ddb2edbfc::t_eab6cf47a20370 3,74,109-114
+src/voice_demo/deepgram/agent.py
+  s_86c05ddb2edbfc::t_a4ae1cda76d56c 1-284
+src/voice_demo/tracing.py
+  s_86c05ddb2edbfc::t_b465829bc0f046 7,40
+uv.lock
+  s_86c05ddb2edbfc::t_1664afa3695420 1440,1478-1590,4111-4113,4144,4157-4160,4175
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "292d14fd6da8785db5a47887f81b3a636529f91d",
+  "prompts": {},
+  "sessions": {
+    "s_86c05ddb2edbfc": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0cf2e-b565-7912-94ea-e54e5ed32ecd",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Caroline di Vittorio <43390382+carolinedivittorio@users.noreply.github.com>"
+    }
+  }
+}
