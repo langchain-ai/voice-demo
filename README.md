@@ -8,6 +8,7 @@ This repo implements a variety of voice agent backends across different framewor
 
 | `--backend` | Stack |
 |---|---|
+| `deepgram` | Deepgram Voice Agent API (managed STT → LLM → TTS over one WebSocket) |
 | `openai` | OpenAI Realtime, raw WebSocket |
 | `openai-agents` | OpenAI Realtime, via the Agents SDK |
 | `gemini` | Gemini Live, raw WebSocket via the official `google-genai` SDK |
@@ -43,7 +44,7 @@ live so the audio plumbing stays out of the lesson.
 Requires Python 3.11+ and [uv](https://docs.astral.sh/uv/).
 
 ```bash
-uv sync --all-extras     # or one backend's deps: --extra openai / openai-agents / gemini / adk / livekit / pipecat
+uv sync --all-extras     # or one backend's deps: --extra deepgram / openai / openai-agents / gemini / adk / livekit / pipecat
 cp .env.example .env      # then fill in the keys below
 ```
 
@@ -55,6 +56,7 @@ Fill in `.env` with your own API keys.
 ## Run
 
 ```bash
+uv run voice-demo --backend deepgram
 uv run voice-demo --backend openai
 uv run voice-demo --backend openai-agents
 uv run voice-demo --backend gemini
@@ -77,15 +79,17 @@ Things to try:
 - "How's the weather in Rome and Berlin right now?" — watch the weather tool get called once per city in the trace.
 - Interrupt the agent while it's talking — watch it stop and listen.
 
-Traces land in a LangSmith project per backend: `voice-demo-openai`,
+Traces land in a LangSmith project per backend: `voice-demo-deepgram`, `voice-demo-openai`,
 `voice-demo-gemini`, `voice-demo-adk`, `voice-demo-livekit`, and so on. Override the name with
 `--project`, or pass `--debug` for verbose tracing logs.
 
 ## How the tracing works
 
-All tracing comes from the published LangSmith SDK's voice integrations, under
-`langsmith.integrations`. Each backend wires one up in a single line that leaves
-the app's own event loop untouched.
+All tracing comes from LangSmith SDK voice integrations under
+`langsmith.integrations`. This checkout is configured to use the editable local
+SDK at `../langsmith-sdk/python`, so changes to the Deepgram integration are
+available immediately. Each backend wires its integration in one line that
+leaves the app's own event loop untouched.
 
 ## Layout
 
@@ -98,7 +102,7 @@ src/voice_demo/
 ├── prompts.py     # shared system prompt + greeting
 ├── weather.py     # shared Open-Meteo lookup (no API key)
 │
-├── openai/, openai_agents/, gemini/, adk/  # event-stream backends (each has an agent.py)
+├── deepgram/, openai/, openai_agents/, gemini/, adk/  # event-stream backends
 └── livekit*/, pipecat*/                     # in-process backends (each has an agent.py)
 ```
 

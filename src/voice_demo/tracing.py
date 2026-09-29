@@ -4,6 +4,7 @@ Each backend traces under a project name derived from a single prefix, so they
 sit next to each other in the LangSmith UI:
 
     voice-demo-openai
+    voice-demo-deepgram
     voice-demo-openai-agents
     voice-demo-gemini
     voice-demo-adk
@@ -36,6 +37,7 @@ import sys
 from typing import Literal
 
 Backend = Literal[
+    "deepgram",
     "openai",
     "openai-agents",
     "gemini",
