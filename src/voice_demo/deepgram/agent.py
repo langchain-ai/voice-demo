@@ -5,9 +5,10 @@ only configures the agent, streams PCM from the injected audio frontend, plays
 the returned PCM, and executes client-side tools. ``wrap_deepgram_voice``
 observes the SDK's unchanged event stream and turns it into one LangSmith trace.
 
-The SDK yields typed pydantic events (``frame.type`` is a ``Literal``), so the
-loop below branches on that field directly — the same shape as the OpenAI
-Realtime backend's ``event.type`` dispatch.
+The SDK yields typed pydantic events (``frame.type`` is a ``Literal``) for
+message types known to that SDK release. Newer server events are returned as
+raw dictionaries and are ignored here after the LangSmith wrapper observes
+them.
 """
 
 from __future__ import annotations
@@ -158,12 +159,18 @@ async def run(
 
             mic_task = asyncio.create_task(pump_mic())
 
-            # The SDK's iterator yields bytes for audio and a typed event for
-            # every known control message; unknown types are dropped upstream.
+            # The SDK yields bytes for audio, typed known control messages, and
+            # raw dictionaries for server events missing from its generated
+            # response union (for example, LatencyReport in SDK 7.4.0).
             async for frame in connection:
                 if isinstance(frame, bytes):
                     audio_out.write(frame)
                     ui.set_state("speaking")
+                    continue
+                if isinstance(frame, dict):
+                    # The tracing wrapper has already observed allowlisted
+                    # metadata from this event; the application has no action
+                    # to take for unknown control messages.
                     continue
 
                 if frame.type == "UserStartedSpeaking":
