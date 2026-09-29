@@ -1,0 +1,20 @@
+src/voice_demo/deepgram/agent.py
+  s_bc62bcd7c4337e::t_710e88ee9bd2c9 8-11,162-164,170-173
+  s_bc62bcd7c4337e::t_0b29cb88d08c2b 174
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "625c6cd8eef8989a992e6b08713c3a0bfdb18091",
+  "prompts": {},
+  "sessions": {
+    "s_bc62bcd7c4337e": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0ede5-ce04-7181-b68e-9794589e6af2",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Caroline di Vittorio <43390382+carolinedivittorio@users.noreply.github.com>"
+    }
+  }
+}
